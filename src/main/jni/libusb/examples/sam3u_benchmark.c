@@ -22,27 +22,57 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#include <unistd.h>
-#include <stdlib.h>
-#include <stdio.h>
+#include <config.h>
+
 #include <errno.h>
 #include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#ifdef HAVE_SYS_TIME_H
+#include <sys/time.h>
+#endif
+#include <time.h>
 
-#include <libusb.h>
-
+#include "libusb.h"
 
 #define EP_DATA_IN	0x82
 #define EP_ISO_IN	0x86
 
-static int do_exit = 0;
+static volatile sig_atomic_t do_exit = 0;
 static struct libusb_device_handle *devh = NULL;
 
 static unsigned long num_bytes = 0, num_xfer = 0;
 static struct timeval tv_start;
 
+static void get_timestamp(struct timeval *tv)
+{
+#if defined(PLATFORM_WINDOWS)
+	static LARGE_INTEGER frequency;
+	LARGE_INTEGER counter;
+
+	if (!frequency.QuadPart)
+		QueryPerformanceFrequency(&frequency);
+
+	QueryPerformanceCounter(&counter);
+	counter.QuadPart *= 1000000;
+	counter.QuadPart /= frequency.QuadPart;
+
+	tv->tv_sec = (long)(counter.QuadPart / 1000000ULL);
+	tv->tv_usec = (long)(counter.QuadPart % 1000000ULL);
+#elif defined(HAVE_CLOCK_GETTIME)
+	struct timespec ts;
+
+	(void)clock_gettime(CLOCK_MONOTONIC, &ts);
+	tv->tv_sec = ts.tv_sec;
+	tv->tv_usec = (int)(ts.tv_nsec / 1000L);
+#else
+	gettimeofday(tv, NULL);
+#endif
+}
+
 static void LIBUSB_CALL cb_xfr(struct libusb_transfer *xfr)
 {
-	unsigned int i;
+	int i;
 
 	if (xfr->status != LIBUSB_TRANSFER_COMPLETED) {
 		fprintf(stderr, "transfer status %d\n", xfr->status);
@@ -55,11 +85,11 @@ static void LIBUSB_CALL cb_xfr(struct libusb_transfer *xfr)
 			struct libusb_iso_packet_descriptor *pack = &xfr->iso_packet_desc[i];
 
 			if (pack->status != LIBUSB_TRANSFER_COMPLETED) {
-				fprintf(stderr, "Error: pack %u status %d\n", i, pack->status);
+				fprintf(stderr, "Error: pack %d status %d\n", i, pack->status);
 				exit(5);
 			}
 
-			printf("pack%u length:%u, actual_length:%u\n", i, pack->length, pack->actual_length);
+			printf("pack%d length:%u, actual_length:%u\n", i, pack->length, pack->actual_length);
 		}
 	}
 
@@ -76,7 +106,6 @@ static void LIBUSB_CALL cb_xfr(struct libusb_transfer *xfr)
 	num_bytes += xfr->actual_length;
 	num_xfer++;
 
-    // 提交传输。 此功能将触发USB传输，然后立即返回。
 	if (libusb_submit_transfer(xfr) < 0) {
 		fprintf(stderr, "error re-submitting URB\n");
 		exit(1);
@@ -92,23 +121,21 @@ static int benchmark_in(uint8_t ep)
 	if (ep == EP_ISO_IN)
 		num_iso_pack = 16;
 
-    // 为libusb传输分配指定数量的同步数据包描述符
 	xfr = libusb_alloc_transfer(num_iso_pack);
-	if (!xfr)
-		return -ENOMEM;
+	if (!xfr) {
+		errno = ENOMEM;
+		return -1;
+	}
 
 	if (ep == EP_ISO_IN) {
-	    // Helper函数填充同步传输所需的 libusb_transfer 字段。
 		libusb_fill_iso_transfer(xfr, devh, ep, buf,
 				sizeof(buf), num_iso_pack, cb_xfr, NULL, 0);
-		// 便利功能可根据传输结构中的num_iso_packets字段设置同步传输中所有数据包的长度。
 		libusb_set_iso_packet_lengths(xfr, sizeof(buf)/num_iso_pack);
 	} else
-	    // Helper函数可填充批量传输所需的libusb_transfer字段。
 		libusb_fill_bulk_transfer(xfr, devh, ep, buf,
 				sizeof(buf), cb_xfr, NULL, 0);
 
-	gettimeofday(&tv_start, NULL);
+	get_timestamp(&tv_start);
 
 	/* NOTE: To reach maximum possible performance the program must
 	 * submit *multiple* transfers here, not just one.
@@ -124,45 +151,47 @@ static int benchmark_in(uint8_t ep)
 	 * transfers which have completed on the bus.
 	 */
 
-    // 提交传输。 此功能将触发USB传输，然后立即返回。
 	return libusb_submit_transfer(xfr);
 }
 
 static void measure(void)
 {
 	struct timeval tv_stop;
-	unsigned int diff_msec;
+	unsigned long diff_msec;
 
-	gettimeofday(&tv_stop, NULL);
+	get_timestamp(&tv_stop);
 
-	diff_msec = (tv_stop.tv_sec - tv_start.tv_sec)*1000;
-	diff_msec += (tv_stop.tv_usec - tv_start.tv_usec)/1000;
+	diff_msec = (tv_stop.tv_sec - tv_start.tv_sec) * 1000L;
+	diff_msec += (tv_stop.tv_usec - tv_start.tv_usec) / 1000L;
 
-	printf("%lu transfers (total %lu bytes) in %u miliseconds => %lu bytes/sec\n",
-		num_xfer, num_bytes, diff_msec, (num_bytes*1000)/diff_msec);
+	printf("%lu transfers (total %lu bytes) in %lu milliseconds => %lu bytes/sec\n",
+		num_xfer, num_bytes, diff_msec, (num_bytes * 1000L) / diff_msec);
 }
 
 static void sig_hdlr(int signum)
 {
-	switch (signum) {
-	case SIGINT:
-		measure();
-		do_exit = 1;
-		break;
-	}
+	(void)signum;
+
+	measure();
+	do_exit = 1;
 }
 
-int main(int argc, char **argv)
+int main(void)
 {
 	int rc;
+
+#if defined(PLATFORM_POSIX)
 	struct sigaction sigact;
 
 	sigact.sa_handler = sig_hdlr;
 	sigemptyset(&sigact.sa_mask);
 	sigact.sa_flags = 0;
-	sigaction(SIGINT, &sigact, NULL);
+	(void)sigaction(SIGINT, &sigact, NULL);
+#else
+	(void)signal(SIGINT, sig_hdlr);
+#endif
 
-	rc = libusb_init(NULL);
+	rc = libusb_init_context(/*ctx=*/NULL, /*options=*/NULL, /*num_options=*/0);
 	if (rc < 0) {
 		fprintf(stderr, "Error initializing libusb: %s\n", libusb_error_name(rc));
 		exit(1);
@@ -190,7 +219,7 @@ int main(int argc, char **argv)
 
 	/* Measurement has already been done by the signal handler. */
 
-	libusb_release_interface(devh, 0);
+	libusb_release_interface(devh, 2);
 out:
 	if (devh)
 		libusb_close(devh);

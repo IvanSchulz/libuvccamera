@@ -1,7 +1,7 @@
 //
 // libusb Xcode configuration file
 // Copyright © 2012 Pete Batard <pete@akeo.ie>
-// For more information, please visit: <http://libusb.info>
+// For more information, please visit: <https://libusb.info>
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -18,3 +18,4 @@
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
 
 PRODUCT_NAME = libusb-1.0.0
+LD_DYLIB_INSTALL_NAME = @rpath/libusb-1.0.0.dylib

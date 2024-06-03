@@ -4,6 +4,7 @@
 #include "utilbase.h"
 #include "UVCButtonCallback.h"
 #include "libuvc_internal.h"
+#include "libuvc/libuvc.h"
 
 #define	LOCAL_DEBUG 0
 

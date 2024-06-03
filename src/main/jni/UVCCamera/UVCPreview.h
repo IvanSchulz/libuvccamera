@@ -38,7 +38,6 @@
 #define DEFAULT_PREVIEW_FPS_MIN 1
 #define DEFAULT_PREVIEW_FPS_MAX 30
 #define DEFAULT_PREVIEW_MODE 0
-#define DEFAULT_BANDWIDTH 1.0f
 #define DEFAULT_FRAME_ROTATION_ANGLE 0
 
 typedef uvc_error_t (*convFunc_t)(uvc_frame_t *in, uvc_frame_t *out);
@@ -58,49 +57,50 @@ typedef struct {
 class UVCPreview {
 private:
 	uvc_device_handle_t *mDeviceHandle;
-	// 预览视图
+	// preview view
 	ANativeWindow *mPreviewWindow;
 	volatile bool mIsRunning;
 	int requestWidth, requestHeight, requestMode;
 	int requestMinFps, requestMaxFps;
-	float requestBandwidth;
 	int frameWidth, frameHeight;
-	int frameMode;
-	// 图像帧需要旋转的角度
+	// The angle at which the image frame needs to be rotated
 	int frameRotationAngle;
-	// 是否水平镜像
+	// Whether to mirror horizontally
 	int frameHorizontalMirror;
-	// 是否垂直镜像
+	// Whether to mirror vertically
 	int frameVerticalMirror;
 	RotateImage *rotateImage;
 	size_t frameBytes;
 	pthread_t preview_thread;
 	pthread_mutex_t preview_mutex;
 	pthread_cond_t preview_sync;
-	// 预览帧数组，获取到的摄像头数据帧都放在这里
+	// Preview frame array, the obtained camera data frames are placed here
 	ObjectArray<uvc_frame_t *> previewFrames;
-	// 预览格式
-	int previewFormat;
-	size_t previewBytes;
+	// Preview format
+	int32_t previewFormat;
+	// fps
+	struct timespec tStart, tEnd;
+	int framesCounter, currentFps, defaultCameraFps;
 //
 	volatile bool mIsCapturing;
 	ANativeWindow *mCaptureWindow;
 	pthread_t capture_thread;
 	pthread_mutex_t capture_mutex;
 	pthread_cond_t capture_sync;
-	// 抓拍帧
+	// Capture frame
 	uvc_frame_t *captureQueu;			// keep latest frame
-	// 帧回调Java对象
+	// Frame callback Java object
 	jobject mFrameCallbackObj;
-	// 像素格式转换方法
+	// Pixel format conversion method
 	convFunc_t mFrameCallbackFunc;
+	convFunc_t mPreviewConvertFunc;
 	Fields_iframecallback iframecallback_fields;
-	// 帧回调像素格式
+	// Frame callback pixel format
 	int mPixelFormat;
 	size_t callbackPixelBytes;
 // improve performance by reducing memory allocation
 	pthread_mutex_t pool_mutex;
-	// 帧池
+	// frame pool
 	ObjectArray<uvc_frame_t *> mFramePool;
 	uvc_frame_t *get_frame(size_t data_bytes);
 	void recycle_frame(uvc_frame_t *frame);
@@ -108,6 +108,7 @@ private:
 	void clear_pool();
 //
 	void clearDisplay();
+	static convFunc_t getConvertFunc(uvc_frame_t *frame, int32_t outputPixelFormat);
 	static void uvc_preview_frame_callback(uvc_frame_t *frame, void *vptr_args);
 	void addPreviewFrame(uvc_frame_t *frame);
 	uvc_frame_t *waitPreviewFrame();
@@ -130,8 +131,8 @@ public:
 	UVCPreview(uvc_device_handle_t *devh);
 	~UVCPreview();
 
-	inline const bool isRunning() const;
-	int setPreviewSize(int width, int height, int cameraAngle, int min_fps, int max_fps, int mode, float bandwidth = 1.0f);
+	inline const bool isRunning() const {return mIsRunning; };
+	int setPreviewSize(int width, int height, int cameraAngle, int min_fps, int max_fps, int mode);
 	int setPreviewDisplay(ANativeWindow *preview_window);
 	int setFrameCallback(JNIEnv *env, jobject frame_callback_obj, int pixel_format);
 	int startPreview();
@@ -142,6 +143,11 @@ public:
 	void setHorizontalMirror(int horizontalMirror);
 	void setVerticalMirror(int verticalMirror);
 	void setCameraAngle(int cameraAngle);
+
+    int getCurrentFps();
+    int getDefaultCameraFps();
+	int getFrameWidth();
+	int getFrameHeight();
 };
 
 #endif /* UVCPREVIEW_H_ */

@@ -41,16 +41,16 @@
 #if defined(__GNUC__)
 // the macro for branch prediction optimaization for gcc(-O2/-O3 required)
 #define		CONDITION(cond)				((__builtin_expect((cond)!=0, 0)))
-#define		LIKELY(x)					((__builtin_expect(!!(x), 1)))	// x is likely true //x很可能为真
-#define		UNLIKELY(x)					((__builtin_expect(!!(x), 0)))	// x is likely false //x很可能为假
+#define		LIKELY(x)					((__builtin_expect(!!(x), 1)))	// x is likely true
+#define		UNLIKELY(x)					((__builtin_expect(!!(x), 0)))	// x is likely false
 #else
 #define		CONDITION(cond)				((cond))
 #define		LIKELY(x)					((x))
 #define		UNLIKELY(x)					((x))
 #endif
 
-// XXX assertはNDEBUGが定義されていたら引数を含めて丸ごと削除されてしまうので
-// 関数実行を直接assertの引数にするとその関数はNDEBUGの時に実行されなくなるので注意
+// XXX If assert is defined, the entire argument will be deleted, including the argument.
+// Note that if you use function execution directly as an argument for assert, that function will not be executed when NDEBUG occurs.
 #include <assert.h>
 #define CHECK(CONDITION) { bool RES = (CONDITION); assert(RES); }
 #define CHECK_EQ(X, Y) { bool RES = (X == Y); assert(RES); }
@@ -203,7 +203,7 @@
 #endif
 
 #define		ENTER()				LOGD("begin")
-#define		RETURN(code,type)	{type RESULT = code; LOGD("end (%d)", (int)RESULT); return RESULT;}
+#define		RETURN(code,type)	{type RESULT = code; LOGD("end (%d)", (int)(size_t)RESULT); return RESULT;}
 #define		RET(code)			{LOGD("end"); return code;}
 #define		EXIT()				{LOGD("end"); return;}
 #define		PRE_EXIT()			LOGD("end")

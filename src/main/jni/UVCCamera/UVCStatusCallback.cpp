@@ -1,4 +1,4 @@
-#include <stdlib.h>
+#include <cstdlib>
 #include <linux/time.h>
 #include <unistd.h>
 #include "utilbase.h"

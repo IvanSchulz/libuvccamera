@@ -4,11 +4,11 @@
 #include "RotateImage.h"
 
 /*
-由于YUYV的排列方式是（YUYV YUYV YUYV ....），其共用关系是每2个横向相邻的Y会使用同一组U和V，
-因此，在旋转180度时，YUV的共用关系可以不被打破，只是更改每4个byte中的2个Y的顺序；
-但是在旋转90度或270度时，由于原来横向的Y将被修改为纵向，YUV的共用关系也将被打破。
+Since the arrangement of YUYV is (YUYV YUYV YUYV....), its sharing relationship is that every two horizontally adjacent Y will use the same set of U and V.
+Therefore, when rotating 180 degrees, the sharing relationship of YUV can not be broken, but the order of 2 Y in every 4 bytes is changed;
+However, when rotating 90 degrees or 270 degrees, since the original horizontal Y will be modified to vertical, the sharing relationship of YUV will also be broken.
 
-参考 https://www.jianshu.com/p/7e602dea3ca1
+reference https://www.jianshu.com/p/7e602dea3ca1
 */
 
 RotateImage::RotateImage(void) {
@@ -31,7 +31,7 @@ RotateImage::~RotateImage(void) {
     EXIT();
 }
 
-// 空间大小处理
+// Space size processing
 void RotateImage::SpaceSizeProcessing(uvc_frame_t *src_frame) {
     if(rotate_data == NULL || rotate_data_bytes < src_frame->data_bytes){
         if(rotate_data != NULL){
@@ -43,7 +43,7 @@ void RotateImage::SpaceSizeProcessing(uvc_frame_t *src_frame) {
     }
 }
 
-// 顺时针旋转 90 度
+// Rotate 90 degrees clockwise
 void RotateImage::rotate_yuyv_90(uvc_frame_t *src_frame) {
     SpaceSizeProcessing(src_frame);
     rotateYuyvDegree90(rotate_data, src_frame->data, src_frame->width, src_frame->height);
@@ -58,7 +58,7 @@ void RotateImage::rotate_yuyv_90(uvc_frame_t *src_frame) {
     src_frame->step = src_frame->width * 2;
 }
 
-// 顺时针旋转 180 度
+// Rotate 180 degrees clockwise
 void RotateImage::rotate_yuyv_180(uvc_frame_t *src_frame) {
     SpaceSizeProcessing(src_frame);
     rotateYuyvDegree180(rotate_data, src_frame->data, src_frame->width, src_frame->height);
@@ -68,7 +68,7 @@ void RotateImage::rotate_yuyv_180(uvc_frame_t *src_frame) {
     rotate_data = temp;
 }
 
-// 顺时针旋转 270 度
+// Rotate 270 degrees clockwise
 void RotateImage::rotate_yuyv_270(uvc_frame_t *src_frame) {
     SpaceSizeProcessing(src_frame);
     rotateYuyvDegree270(rotate_data, src_frame->data, src_frame->width, src_frame->height);
@@ -83,7 +83,7 @@ void RotateImage::rotate_yuyv_270(uvc_frame_t *src_frame) {
     src_frame->step = src_frame->width * 2;
 }
 
-// 水平镜像
+// Horizontal mirroring
 void RotateImage::horizontal_mirror_yuyv(uvc_frame_t *src_frame){
     SpaceSizeProcessing(src_frame);
     horizontalMirrorYuyv(rotate_data, src_frame->data, src_frame->width, src_frame->height);
@@ -93,7 +93,7 @@ void RotateImage::horizontal_mirror_yuyv(uvc_frame_t *src_frame){
     rotate_data = temp;
 }
 
-// 垂直镜像
+// vertical mirror
 void RotateImage::vertical_mirror_yuyv(uvc_frame_t *src_frame){
     SpaceSizeProcessing(src_frame);
     verticalMirrorYuyv(rotate_data, src_frame->data, src_frame->width, src_frame->height);
@@ -116,7 +116,7 @@ void RotateImage::rotateYuyvDegree90(void *_rotatedYuyv, void *_yuyv, uint32_t w
         for (uint32_t h = 0; h < height; h += 2) {
             /**
              * y1 u1 y2 v2   y3 u2 y4 v2
-             *                              ->    旋转后的画面脑补下
+             *                              ->    Picture after rotation
              * y5 u3 y6 v3   y7 u4 y8 v4
              */
             uint32_t originalOffset = yuyvStartIndex - offset;
@@ -177,7 +177,7 @@ void RotateImage::rotateYuyvDegree270(void *_rotatedYuyv, void *_yuyv, uint32_t 
         for (uint32_t h = 0; h < height; h += 2) {
             /**
              * y1 u1 y2 v1   y3 u2 y4 v2
-             *                              ->    旋转后的画面脑补下
+             *                              ->    Picture after rotation
              * y5 u3 y6 v3   y7 u4 y8 v4
              */
 
@@ -210,7 +210,7 @@ void RotateImage::rotateYuyvDegree270(void *_rotatedYuyv, void *_yuyv, uint32_t 
     }
 }
 
-// 水平镜像 参考 https://www.jianshu.com/p/777b7ea0059c
+// Horizontal Mirror Reference https://www.jianshu.com/p/777b7ea0059c
 void RotateImage::horizontalMirrorYuyv(void *_mirrorYuyv, void *_yuyv, uint32_t width, uint32_t height) {
     char *mirrorYuyv = (char *)_mirrorYuyv;
     char *yuyv = (char *)_yuyv;
@@ -227,7 +227,7 @@ void RotateImage::horizontalMirrorYuyv(void *_mirrorYuyv, void *_yuyv, uint32_t 
     }
 }
 
-// 垂直镜像 参考 https://www.jianshu.com/p/777b7ea0059c
+// Vertical Mirror Reference https://www.jianshu.com/p/777b7ea0059c
 void RotateImage::verticalMirrorYuyv(void *_mirrorYuyv, void *_yuyv, uint32_t width, uint32_t height) {
     char *mirrorYuyv = (char *)_mirrorYuyv;
     char *yuyv = (char *)_yuyv;

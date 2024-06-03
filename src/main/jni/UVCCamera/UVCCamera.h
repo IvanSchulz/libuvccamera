@@ -92,6 +92,7 @@ typedef uvc_error_t (*paramget_func_u8)(uvc_device_handle_t *devh, uint8_t *valu
 typedef uvc_error_t (*paramget_func_u16)(uvc_device_handle_t *devh, uint16_t *value, enum uvc_req_code req_code);
 typedef uvc_error_t (*paramget_func_u32)(uvc_device_handle_t *devh, uint32_t *value, enum uvc_req_code req_code);
 typedef uvc_error_t (*paramget_func_u8u8)(uvc_device_handle_t *devh, uint8_t *value1, uint8_t *value2, enum uvc_req_code req_code);
+typedef uvc_error_t (*paramget_func_u16u16)(uvc_device_handle_t *devh, uint16_t *value1, uint16_t *value2, enum uvc_req_code req_code);
 typedef uvc_error_t (*paramget_func_i8u8)(uvc_device_handle_t *devh, int8_t *value1, uint8_t *value2, enum uvc_req_code req_code);
 typedef uvc_error_t (*paramget_func_i8u8u8)(uvc_device_handle_t *devh, int8_t *value1, uint8_t *value2, uint8_t *value3, enum uvc_req_code req_code);
 typedef uvc_error_t (*paramget_func_i32i32)(uvc_device_handle_t *devh, int32_t *value1, int32_t *value2, enum uvc_req_code req_code);
@@ -103,6 +104,7 @@ typedef uvc_error_t (*paramset_func_u8)(uvc_device_handle_t *devh, uint8_t value
 typedef uvc_error_t (*paramset_func_u16)(uvc_device_handle_t *devh, uint16_t value);
 typedef uvc_error_t (*paramset_func_u32)(uvc_device_handle_t *devh, uint32_t value);
 typedef uvc_error_t (*paramset_func_u8u8)(uvc_device_handle_t *devh, uint8_t value1, uint8_t value2);
+typedef uvc_error_t (*paramset_func_u16u16)(uvc_device_handle_t *devh, uint16_t value1, uint16_t value2);
 typedef uvc_error_t (*paramset_func_i8u8)(uvc_device_handle_t *devh, int8_t value1, uint8_t value2);
 typedef uvc_error_t (*paramset_func_i8u8u8)(uvc_device_handle_t *devh, int8_t value1, uint8_t value2, uint8_t value3);
 typedef uvc_error_t (*paramset_func_i32i32)(uvc_device_handle_t *devh, int32_t value1, int32_t value2);
@@ -115,7 +117,7 @@ class UVCCamera {
 	uvc_device_handle_t *mDeviceHandle;
 	UVCStatusCallback *mStatusCallback;
 	UVCButtonCallback *mButtonCallback;
-	// プレビュー用  预览
+	// Preview version
 	UVCPreview *mPreview;
 	uint64_t mCtrlSupports;
 	uint64_t mPUSupports;
@@ -165,6 +167,8 @@ class UVCCamera {
 		paramget_func_u8 get_func, paramset_func_u8 set_func);
 	int internalSetCtrlValue(control_value_t &values, uint8_t value1, uint8_t value2,
 		paramget_func_u8u8 get_func, paramset_func_u8u8 set_func);
+	int internalSetCtrlValue(control_value_t &values, uint16_t value1, uint16_t value2,
+							 paramget_func_u16u16 get_func, paramset_func_u16u16 set_func);
 	int internalSetCtrlValue(control_value_t &values, int8_t value1, uint8_t value2,
 		paramget_func_i8u8 get_func, paramset_func_i8u8 set_func);
 	int internalSetCtrlValue(control_value_t &values, int8_t value1, uint8_t value2, uint8_t value3,
@@ -181,14 +185,14 @@ public:
 	UVCCamera();
 	~UVCCamera();
 
-	int connect(int vid, int pid, int fd, int busnum, int devaddr, const char *usbfs);
+	int connect(int vid, int pid, int fd, const char *usbfs);
 	int release();
 
 	int setStatusCallback(JNIEnv *env, jobject status_callback_obj);
 	int setButtonCallback(JNIEnv *env, jobject button_callback_obj);
 
 	char *getSupportedSize();
-	int setPreviewSize(int width, int height, int cameraAngle, int min_fps, int max_fps, int mode, float bandwidth = DEFAULT_BANDWIDTH);
+	int setPreviewSize(int width, int height, int cameraAngle, int min_fps, int max_fps, int mode);
 	int setPreviewDisplay(ANativeWindow *preview_window);
 	int setFrameCallback(JNIEnv *env, jobject frame_callback_obj, int pixel_format);
 	int startPreview();
@@ -357,6 +361,12 @@ public:
 	void setHorizontalMirror(int horizontalMirror);
 	void setVerticalMirror(int verticalMirror);
 	void setCameraAngle(int cameraAngle);
+
+	int getCurrentFps();
+	int getDefaultCameraFps();
+	int getFrameWidth();
+	int getFrameHeight();
+	bool isRunning();
 };
 
 #endif /* UVCCAMERA_H_ */

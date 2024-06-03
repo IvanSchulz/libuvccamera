@@ -182,7 +182,7 @@ static void writerFormat(Writer<StringBuffer> &writer, uvc_format_desc_t *fmt_de
 					}
 					writer.EndArray();
 				} else {
-					// 最小fps
+					// Minimum fps
 					writer.String(FRAME_INTERVAL_MIN);
 					writer.StartObject();
 					{
@@ -191,7 +191,7 @@ static void writerFormat(Writer<StringBuffer> &writer, uvc_format_desc_t *fmt_de
 						write(writer, FRAME_INTERVAL_FPS, 10000000 / frame_desc->dwMinFrameInterval);
 					}
 					writer.EndObject();
-					// 最大fps
+					// Max fps
 					writer.String(FRAME_INTERVAL_MAX);
 					writer.StartObject();
 					{
@@ -201,7 +201,7 @@ static void writerFormat(Writer<StringBuffer> &writer, uvc_format_desc_t *fmt_de
 					}
 					writer.EndObject();
 					if (frame_desc->dwFrameIntervalStep) {
-						// fpsステップ
+						// fps step
 						writer.String(FRAME_INTERVAL_STEP);
 						writer.StartObject();
 						{

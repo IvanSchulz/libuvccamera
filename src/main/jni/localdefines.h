@@ -31,8 +31,6 @@
 #define LOG_TAG "libUVCCamera"
 #endif
 
-#define LIBUVC_HAS_JPEG
-
 // write back array that got by getXXXArrayElements into original Java object and release its array
 #define	ARRAYELEMENTS_COPYBACK_AND_RELEASE 0
 // write back array that got by getXXXArrayElements into origianl Java object but do not release its array
@@ -68,7 +66,7 @@
 // Absolute class name of Java object
 // if you change the package name of UVCCamera library, you must fix these
 #define		JTYPE_SYSTEM				"Ljava/lang/System;"
-#define		JTYPE_UVCCAMERA				"Lcom/serenegiant/usb_libuvccamera/UVCCamera;"
+#define		JTYPE_UVCCAMERA				"Lcom/serenegiant/libuvccamera/UVCCamera;"
 //
 typedef		jlong						ID_TYPE;
 

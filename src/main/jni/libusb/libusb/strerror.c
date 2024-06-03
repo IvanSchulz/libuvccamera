@@ -16,28 +16,19 @@
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
-#include "config.h"
 
-#include <locale.h>
-#include <stdlib.h>
-#include <string.h>
-
-#include "libusb.h"
 #include "libusbi.h"
 
-#if defined(_MSC_VER)
-#define strncasecmp _strnicmp
-#endif
+#include <ctype.h>
+#include <string.h>
 
-static size_t usbi_locale = 0;
-
-/** \ingroup misc
+/** \ingroup libusb_misc
  * How to add a new \ref libusb_strerror() translation:
  * <ol>
  * <li> Download the latest \c strerror.c from:<br>
- *      https://raw.github.com/libusb/libusb/master/libusb/sterror.c </li>
+ *      https://raw.github.com/libusb/libusb/master/libusb/strerror.c </li>
  * <li> Open the file in an UTF-8 capable editor </li>
- * <li> Add the 2 letter <a href="http://en.wikipedia.org/wiki/List_of_ISO_639-1_codes">ISO 639-1</a>
+ * <li> Add the 2 letter <a href="https://en.wikipedia.org/wiki/List_of_ISO_639-1_codes">ISO 639-1</a>
  *      code for your locale at the end of \c usbi_locale_supported[]<br>
  *    Eg. for Chinese, you would add "zh" so that:
  *    \code... usbi_locale_supported[] = { "en", "nl", "fr" };\endcode
@@ -50,15 +41,15 @@ static size_t usbi_locale = 0;
  *         "Success",
  *         ...
  *         "Other error",
- *     }
+ *     },
  * };\endcode </li>
  * <li> Translate each of the English messages from the section you copied into your language </li>
  * <li> Save the file (in UTF-8 format) and send it to \c libusb-devel\@lists.sourceforge.net </li>
  * </ol>
  */
 
-static const char* usbi_locale_supported[] = { "en", "nl", "fr", "ru" };
-static const char* usbi_localized_errors[ARRAYSIZE(usbi_locale_supported)][LIBUSB_ERROR_COUNT] = {
+static const char * const usbi_locale_supported[] = { "en", "nl", "fr", "ru", "de", "hu" };
+static const char * const usbi_localized_errors[ARRAYSIZE(usbi_locale_supported)][LIBUSB_ERROR_COUNT] = {
 	{ /* English (en) */
 		"Success",
 		"Input/Output Error",
@@ -119,10 +110,42 @@ static const char* usbi_localized_errors[ARRAYSIZE(usbi_locale_supported)][LIBUS
 		"Память исчерпана",
 		"Операция не поддерживается данной платформой",
 		"Неизвестная ошибка"
-	}
+	}, { /* German (de) */
+		"Erfolgreich",
+		"Eingabe-/Ausgabefehler",
+		"Ungültiger Parameter",
+		"Keine Berechtigung (Zugriffsrechte fehlen)",
+		"Kein passendes Gerät gefunden (es könnte entfernt worden sein)",
+		"Entität nicht gefunden",
+		"Die Ressource ist belegt",
+		"Die Wartezeit für die Operation ist abgelaufen",
+		"Mehr Daten empfangen als erwartet",
+		"Datenübergabe unterbrochen (broken pipe)",
+		"Unterbrechung während des Betriebssystemaufrufs",
+		"Nicht genügend Hauptspeicher verfügbar",
+		"Die Operation wird nicht unterstützt oder ist auf dieser Platform nicht implementiert",
+		"Allgemeiner Fehler",
+	}, { /* Hungarian (hu) */
+		"Sikeres",
+		"Be-/kimeneti hiba",
+		"Érvénytelen paraméter",
+		"Hozzáférés megtagadva",
+		"Az eszköz nem található (eltávolították?)",
+		"Nem található",
+		"Az erőforrás foglalt",
+		"Időtúllépés",
+		"Túlcsordulás",
+		"Törött adatcsatorna",
+		"Rendszerhívás megszakítva",
+		"Nincs elég memória",
+		"A művelet nem támogatott ezen a rendszeren",
+		"Általános hiba",
+	},
 };
 
-/** \ingroup misc
+static const char * const (*usbi_error_strings)[LIBUSB_ERROR_COUNT] = &usbi_localized_errors[0];
+
+/** \ingroup libusb_misc
  * Set the language, and only the language, not the encoding! used for
  * translatable libusb messages.
  *
@@ -131,13 +154,13 @@ static const char* usbi_localized_errors[ARRAYSIZE(usbi_locale_supported)][LIBUS
  * used, and only 2 letter ISO 639-1 codes are accepted for it, such as "de".
  * The optional region, country_region or codeset parts are ignored. This
  * means that functions which return translatable strings will NOT honor the
- * specified encoding. 
+ * specified encoding.
  * All strings returned are encoded as UTF-8 strings.
  *
  * If libusb_setlocale() is not called, all messages will be in English.
  *
  * The following functions return translatable strings: libusb_strerror().
- * Note that the libusb log messages controlled through libusb_set_debug()
+ * Note that the libusb log messages controlled through LIBUSB_OPTION_LOG_LEVEL
  * are not translated, they are always in English.
  *
  * For POSIX UTF-8 environments if you want libusb to follow the standard
@@ -146,42 +169,35 @@ static const char* usbi_localized_errors[ARRAYSIZE(usbi_locale_supported)][LIBUS
  *
  * \param locale locale-string in the form of lang[_country_region][.codeset]
  * or lang[-region], where lang is a 2 letter ISO 639-1 code
- * \returns LIBUSB_SUCCESS on success
- * \returns LIBUSB_ERROR_INVALID_PARAM if the locale doesn't meet the requirements
- * \returns LIBUSB_ERROR_NOT_FOUND if the requested language is not supported
+ * \returns \ref LIBUSB_SUCCESS on success
+ * \returns \ref LIBUSB_ERROR_INVALID_PARAM if the locale doesn't meet the requirements
+ * \returns \ref LIBUSB_ERROR_NOT_FOUND if the requested language is not supported
  * \returns a LIBUSB_ERROR code on other errors
- *
- * 设置语言，仅设置语言，而不设置编码！ 用于可翻译的libusb消息。
- * 这采用默认setlocale格式的语言环境字符串：lang [-region]或lang [_country_region] [。codeset]。
- * 仅使用字符串的lang部分，并且仅接受2个字母的ISO 639-1代码，例如“ de”。 可选的region，country_region或代码集部分将被忽略。
- * 这意味着返回可翻译字符串的函数将不支持指定的编码。 返回的所有字符串均编码为UTF-8字符串。
- * 如果未调用libusb_setlocale()，则所有消息均为英文。
- * 以下函数返回可翻译的字符串：libusb_strerror()。 请注意，通过libusb_set_debug()控制的libusb日志消息未翻译，它们始终为英文。
- * 对于POSIX UTF-8环境，如果您希望libusb遵循标准的语言环境设置，请在应用程序完成其语言环境设置之后，调用libusb_setlocale（setlocale（LC_MESSAGES，NULL））。
  */
 
 int API_EXPORTED libusb_setlocale(const char *locale)
 {
 	size_t i;
 
-	if ( (locale == NULL) || (strlen(locale) < 2)
-	  || ((strlen(locale) > 2) && (locale[2] != '-') && (locale[2] != '_') && (locale[2] != '.')) )
+	if (!locale || strlen(locale) < 2
+	    || (locale[2] != '\0' && locale[2] != '-' && locale[2] != '_' && locale[2] != '.'))
 		return LIBUSB_ERROR_INVALID_PARAM;
 
-	for (i=0; i<ARRAYSIZE(usbi_locale_supported); i++) {
-		if (strncasecmp(usbi_locale_supported[i], locale, 2) == 0)
+	for (i = 0; i < ARRAYSIZE(usbi_locale_supported); i++) {
+		if (usbi_locale_supported[i][0] == tolower((unsigned char)locale[0])
+		    && usbi_locale_supported[i][1] == tolower((unsigned char)locale[1]))
 			break;
 	}
-	if (i >= ARRAYSIZE(usbi_locale_supported)) {
-		return LIBUSB_ERROR_NOT_FOUND;
-	}
 
-	usbi_locale = i;
+	if (i == ARRAYSIZE(usbi_locale_supported))
+		return LIBUSB_ERROR_NOT_FOUND;
+
+	usbi_error_strings = &usbi_localized_errors[i];
 
 	return LIBUSB_SUCCESS;
 }
 
-/** \ingroup misc
+/** \ingroup libusb_misc
  * Returns a constant string with a short description of the given error code,
  * this description is intended for displaying to the end user and will be in
  * the language set by libusb_setlocale().
@@ -193,21 +209,15 @@ int API_EXPORTED libusb_setlocale(const char *locale)
  *
  * \param errcode the error code whose description is desired
  * \returns a short description of the error code in UTF-8 encoding
- *
- * 返回带有给定错误代码的简短描述的常量字符串，该描述旨在显示给最终用户，并且使用libusb_setlocale()设置的语言。
- * 返回的字符串以UTF-8编码。
- * 消息始终以大写字母开头，结尾不带任何点。 调用者不得free()返回的字符串。
  */
-DEFAULT_VISIBILITY const char* LIBUSB_CALL libusb_strerror(enum libusb_error errcode)
+DEFAULT_VISIBILITY const char * LIBUSB_CALL libusb_strerror(int errcode)
 {
 	int errcode_index = -errcode;
 
-	if ((errcode_index < 0) || (errcode_index >= LIBUSB_ERROR_COUNT)) {
-		/* "Other Error", which should always be our last message, is returned
-		 * 返回"Other Error"，该错误应始终是我们的最后一条消息
-		 */
+	if (errcode_index < 0 || errcode_index >= LIBUSB_ERROR_COUNT) {
+		/* "Other Error", which should always be our last message, is returned */
 		errcode_index = LIBUSB_ERROR_COUNT - 1;
 	}
 
-	return usbi_localized_errors[usbi_locale][errcode_index];
+	return (*usbi_error_strings)[errcode_index];
 }

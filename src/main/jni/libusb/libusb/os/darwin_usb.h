@@ -1,6 +1,7 @@
 /*
  * darwin backend for libusb 1.0
- * Copyright © 2008-2013 Nathan Hjelm <hjelmn@users.sourceforge.net>
+ * Copyright © 2008-2023 Nathan Hjelm <hjelmn@users.sourceforge.net>
+ * Copyright © 2019-2023 Google LLC. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -20,6 +21,8 @@
 #if !defined(LIBUSB_DARWIN_H)
 #define LIBUSB_DARWIN_H
 
+#include <stdbool.h>
+
 #include "libusbi.h"
 
 #include <IOKit/IOTypes.h>
@@ -27,82 +30,74 @@
 #include <IOKit/usb/IOUSBLib.h>
 #include <IOKit/IOCFPlugIn.h>
 
-/* IOUSBInterfaceInferface */
-#if defined (kIOUSBInterfaceInterfaceID550)
-
-#define usb_interface_t IOUSBInterfaceInterface550
-#define InterfaceInterfaceID kIOUSBInterfaceInterfaceID550
-#define InterfaceVersion 550
-
-#elif defined (kIOUSBInterfaceInterfaceID500)
-
-#define usb_interface_t IOUSBInterfaceInterface500
-#define InterfaceInterfaceID kIOUSBInterfaceInterfaceID500
-#define InterfaceVersion 500
-
-#elif defined (kIOUSBInterfaceInterfaceID300)
-
-#define usb_interface_t IOUSBInterfaceInterface300
-#define InterfaceInterfaceID kIOUSBInterfaceInterfaceID300
-#define InterfaceVersion 300
-
-#elif defined (kIOUSBInterfaceInterfaceID245)
-
-#define usb_interface_t IOUSBInterfaceInterface245
-#define InterfaceInterfaceID kIOUSBInterfaceInterfaceID245
-#define InterfaceVersion 245
-
-#elif defined (kIOUSBInterfaceInterfaceID220)
-
-#define usb_interface_t IOUSBInterfaceInterface220
-#define InterfaceInterfaceID kIOUSBInterfaceInterfaceID220
-#define InterfaceVersion 220
-
-#else
-
-#error "IOUSBFamily is too old. Please upgrade your OS"
-
+#if defined(HAVE_IOKIT_USB_IOUSBHOSTFAMILYDEFINITIONS_H)
+#include <IOKit/usb/IOUSBHostFamilyDefinitions.h>
 #endif
 
-/* IOUSBDeviceInterface */
-#if defined (kIOUSBDeviceInterfaceID500)
+/* IOUSBInterfaceInferface */
 
-#define usb_device_t    IOUSBDeviceInterface500
-#define DeviceInterfaceID kIOUSBDeviceInterfaceID500
-#define DeviceVersion 500
-
-#elif defined (kIOUSBDeviceInterfaceID320)
-
-#define usb_device_t    IOUSBDeviceInterface320
-#define DeviceInterfaceID kIOUSBDeviceInterfaceID320
-#define DeviceVersion 320
-
-#elif defined (kIOUSBDeviceInterfaceID300)
-
-#define usb_device_t    IOUSBDeviceInterface300
-#define DeviceInterfaceID kIOUSBDeviceInterfaceID300
-#define DeviceVersion 300
-
-#elif defined (kIOUSBDeviceInterfaceID245)
-
-#define usb_device_t    IOUSBDeviceInterface245
-#define DeviceInterfaceID kIOUSBDeviceInterfaceID245
-#define DeviceVersion 245
-
-#elif defined (kIOUSBDeviceInterfaceID220)
-#define usb_device_t    IOUSBDeviceInterface197
-#define DeviceInterfaceID kIOUSBDeviceInterfaceID197
-#define DeviceVersion 197
-
+#if defined(kIOUSBInterfaceInterfaceID800)
+#define MAX_INTERFACE_VERSION 800
+#elif defined(kIOUSBInterfaceInterfaceID700)
+#define	MAX_INTERFACE_VERSION 700
+#elif defined(kIOUSBInterfaceInterfaceID650)
+#define MAX_INTERFACE_VERSION 650
+#elif defined(kIOUSBInterfaceInterfaceID550)
+#define MAX_INTERFACE_VERSION 550
+#elif defined(kIOUSBInterfaceInterfaceID245)
+#define MAX_INTERFACE_VERSION 245
 #else
+#define	MAX_INTERFACE_VERSION 220
+#endif
 
-#error "IOUSBFamily is too old. Please upgrade your OS"
+/* set to the minimum version and casted up as needed. */
+typedef IOUSBInterfaceInterface220 **usb_interface_t;
 
+#define IOINTERFACE0(darwin_interface, version) ((IOUSBInterfaceInterface ## version **) (darwin_interface)->interface)
+#define IOINTERFACE_V(darwin_interface, version) IOINTERFACE0(darwin_interface, version)
+#define IOINTERFACE(darwin_interface) ((darwin_interface)->interface)
+
+/* IOUSBDeviceInterface */
+
+#if defined(kIOUSBDeviceInterfaceID650)
+#define MAX_DEVICE_VERSION 650
+#elif defined(kIOUSBDeviceInterfaceID500)
+#define	MAX_DEVICE_VERSION 500
+#elif defined(kIOUSBDeviceInterfaceID320)
+#define MAX_DEVICE_VERSION 320
+#elif defined(kIOUSBDeviceInterfaceID300)
+#define MAX_DEVICE_VERSION 300
+#elif defined(kIOUSBDeviceInterfaceID245)
+#define MAX_DEVICE_VERSION 245
+#else
+#define	MAX_DEVICE_VERSION 197
+#endif
+
+/* set to the minimum version and casted up as needed */
+typedef IOUSBDeviceInterface197 **usb_device_t;
+
+#define IODEVICE0(darwin_device, version) ((IOUSBDeviceInterface ## version **)(darwin_device))
+#define IODEVICE_V(darwin_device, version) IODEVICE0(darwin_device, version)
+
+#if !defined(kIOUSBHostInterfaceClassName)
+#define kIOUSBHostInterfaceClassName "IOUSBHostInterface"
+#endif
+
+#if !defined(kUSBHostMatchingPropertyInterfaceNumber)
+#define kUSBHostMatchingPropertyInterfaceNumber "bInterfaceNumber"
 #endif
 
 #if !defined(IO_OBJECT_NULL)
 #define IO_OBJECT_NULL ((io_object_t) 0)
 #endif
+
+/* returns the current macOS version in a format similar to the
+ * MAC_OS_X_VERSION_MIN_REQUIRED macro.
+ * Examples:
+ *   10.1.5 -> 100105
+ *   13.3.0 -> 130300
+ */
+uint32_t get_running_version(void);
 
 typedef IOCFPlugInInterface *io_cf_plugin_ref_t;
 typedef IONotificationPortRef io_notification_port_t;
@@ -114,13 +109,16 @@ struct darwin_cached_device {
   UInt32                location;
   UInt64                parent_session;
   UInt64                session;
-  UInt16                address;
+  USBDeviceAddress      address;
   char                  sys_path[21];
-  usb_device_t        **device;
+  usb_device_t          device;
+  io_service_t          service;
   int                   open_count;
-  UInt8                 first_config, active_config, port;  
+  UInt8                 first_config, active_config, port;
   int                   can_enumerate;
   int                   refcount;
+  bool                  in_reenumerate;
+  int                   capture_count;
 };
 
 struct darwin_device_priv {
@@ -128,16 +126,15 @@ struct darwin_device_priv {
 };
 
 struct darwin_device_handle_priv {
-  int                  is_open;
+  bool                 is_open;
   CFRunLoopSourceRef   cfSource;
-  int                  fds[2];
 
   struct darwin_interface {
-    usb_interface_t    **interface;
+    usb_interface_t      interface;
     uint8_t              num_endpoints;
     CFRunLoopSourceRef   cfSource;
     uint64_t             frames[256];
-    uint8_t            endpoint_addrs[USB_MAXENDPOINTS];
+    uint8_t              endpoint_addrs[USB_MAXENDPOINTS];
   } interfaces[USB_MAXINTERFACES];
 };
 
@@ -150,11 +147,8 @@ struct darwin_transfer_priv {
   IOUSBDevRequestTO req;
 
   /* Bulk */
-};
 
-/* structure for signaling io completion */
-struct darwin_msg_async_io_complete {
-  struct usbi_transfer *itransfer;
+  /* Completion status */
   IOReturn result;
   UInt32 size;
 };

@@ -2,7 +2,7 @@
 
    *********************************************************************
    *  The latest version of this snapshot can always be downloaded at: *
-   *         https://sourceforge.net/projects/libusb/files/           *
+   *         https://github.com/libusb/libusb/releases                 *
    *********************************************************************
 
 o Visual Studio:
@@ -15,32 +15,11 @@ o Visual Studio:
     Also make sure that the directory where libusb-1.0.lib resides is added to
     'Additional Library Directories' (Configuration Properties -> Linker
     -> General)
-  - If you use the static version of the libusb library, make sure that
-    'Runtime Library' is set to 'Multi-threaded DLL (/MD)' (Configuration
-    Properties -> C/C++ -> Code Generation).
-    NB: If your application requires /MT (Multi-threaded/libCMT), you need to
-    recompile a static libusb 1.0 library from source.
+  - By default, static libusb statically links against the CRT and the dll build
+    dynamically links against CRT. You need to rebuild libusb from source to
+    change this if required by your application.
   - Compile and run your application. If you use the DLL version of libusb-1.0,
-    remember that you need to have a copy of the DLL either in the runtime
-    directory or in system32
-
-o WDK/DDK:
-  - The following is an example of a sources files that you can use to compile
-    a libusb 1.0 based console application. In this sample ..\libusb\ is the
-    directory where you would have copied libusb.h as well as the relevant 
-    libusb-1.0.lib
-
-	TARGETNAME=your_app
-	TARGETTYPE=PROGRAM
-	USE_MSVCRT=1
-	UMTYPE=console
-	INCLUDES=..\libusb;$(DDK_INC_PATH)
-	TARGETLIBS=..\libusb\libusb-1.0.lib
-	SOURCES=your_app.c
-
-  - Note that if you plan to use libCMT instead of MSVCRT (USE_LIBCMT=1 instead
-    of USE_MSVCRT=1), you will need to recompile libusb to use libCMT. This can
-    easily be achieved, in the DDK environment, by running 'ddk_build /MT'
+    remember that the DLL needs to be in the DLL search path of your application.
 
 o MinGW/cygwin
   - Copy libusb.h, from include/libusb-1.0/ to your default include directory,
@@ -55,7 +34,10 @@ o Additional information:
   - For some libusb samples (including source), please have a look in examples/
   - For additional information on the libusb 1.0 Windows backend please visit:
     http://windows.libusb.info
+  - Using the UsbDk backend is now a run-time choice rather than a compile-time
+    choice.  For additional information, including example usage, please visit:
+    http://windows.libusb.info/#Driver_Installation
   - The MinGW and MS generated DLLs are fully interchangeable, provided that you
     use the import libs provided or generate one from the .def also provided.
-  - If you find any issue, please visit http://libusb.info/ and check the
+  - If you find any issue, please visit https://libusb.info/ and check the
     Support section
