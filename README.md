@@ -1,7 +1,11 @@
 UVCCamera
 =========
 
-library and sample to access to UVC web camera on non-rooted Android device
+> Fork from saki4510t/UVCCamera -> metuuu/UVCCamera but without examples.
+> 
+> The libusb, libuvc and libjpeg-turbo have been updated. Performance improved, some bugs fixed, Android-14 support.
+
+library to access to UVC web camera on non-rooted Android device
 
 Copyright (c) 2014-2017 saki t_saki@serenegiant.com
 
