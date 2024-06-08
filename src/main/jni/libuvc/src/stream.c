@@ -1612,13 +1612,31 @@ static uvc_error_t _uvc_get_stream_ctrl_format(uvc_device_handle_t *devh,
             continue;
 
         uint32_t *interval;
+        uint32_t maxFpsFound = 0;
+        ctrl->dwFrameInterval = 0;
+
+        if (frame->dwMinFrameInterval){
+            ctrl->bmHint = (1 << 0);/* don't negotiate interval */
+            ctrl->bFormatIndex = format->bFormatIndex;
+            ctrl->bFrameIndex = frame->bFrameIndex;
+            ctrl->dwFrameInterval = frame->dwMinFrameInterval;
+        }
 
         if (frame->intervals) {
             for (interval = frame->intervals; *interval; ++interval) {
                 if (UNLIKELY(!(*interval))) continue;
-                uint32_t it = 10000000 / *interval;
-                LOGV("it:%d", it);
-                if ((it >= (uint32_t) min_fps) && (it <= (uint32_t) max_fps)) {
+                uint32_t fps = 10000000 / *interval;
+                LOGV("fps:%d", fps);
+
+                if (fps > maxFpsFound){
+                    maxFpsFound = fps;
+                    ctrl->bmHint = (1 << 0); /* don't negotiate interval */
+                    ctrl->bFormatIndex = format->bFormatIndex;
+                    ctrl->bFrameIndex = frame->bFrameIndex;
+                    ctrl->dwFrameInterval = *interval;
+                }
+
+                if ((fps >= (uint32_t) min_fps) && (fps <= (uint32_t) max_fps)) {
                     ctrl->bmHint = (1 << 0); /* don't negotiate interval */
                     ctrl->bFormatIndex = format->bFormatIndex;
                     ctrl->bFrameIndex = frame->bFrameIndex;
@@ -1635,19 +1653,21 @@ static uvc_error_t _uvc_get_stream_ctrl_format(uvc_device_handle_t *devh,
                 LOGV("fps:%d", fps);
                 if (interval_100ns >= frame->dwMinFrameInterval
                     && interval_100ns <= frame->dwMaxFrameInterval
-                    && !(interval_offset
-                         && (interval_offset % frame->dwFrameIntervalStep) ) ) {
-                    /* don't negotiate interval */
-                    ctrl->bmHint = (1 << 0);
+                    && !(interval_offset && (interval_offset % frame->dwFrameIntervalStep) ) ) {
+                    ctrl->bmHint = (1 << 0);/* don't negotiate interval */
                     ctrl->bFormatIndex = format->bFormatIndex;
                     ctrl->bFrameIndex = frame->bFrameIndex;
                     ctrl->dwFrameInterval = interval_100ns;
-
                     goto found;
                 }
             }
         }
     }
+
+    if (ctrl->dwFrameInterval){
+        goto found;
+    }
+
     result = UVC_ERROR_INVALID_MODE;
     fail:
     uvc_release_if(devh, ctrl->bInterfaceNumber);
