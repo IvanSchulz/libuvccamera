@@ -230,7 +230,7 @@ uvc_error_t uvc_mjpeg2rgb(uvc_frame_t *in, uvc_frame_t *out) {
 #ifdef LIBUVC_USE_TURBOJPEG
   if (tjInstance == NULL) return UVC_ERROR_OTHER;
   int res = tj3Decompress8(tjInstance, in->data, in->data_bytes, out->data, 0, TJPF_RGB);
-  if (res < 0) return UVC_ERROR_OTHER;
+  //if (res < 0) return UVC_ERROR_OTHER; // tj3Decompress8 return -1 on some cameras, but frame is still valid
   return 0;
 #else
   return uvc_mjpeg_convert(in, out);
@@ -286,7 +286,7 @@ uvc_error_t uvc_mjpeg2rgbx(uvc_frame_t *in, uvc_frame_t *out) {
 #ifdef LIBUVC_USE_TURBOJPEG
     if (tjInstance == NULL) return UVC_ERROR_OTHER;
     int res = tj3Decompress8(tjInstance, in->data, in->data_bytes, out->data, 0, TJPF_RGBX);
-    if (res < 0) return UVC_ERROR_OTHER;
+    //if (res < 0) return UVC_ERROR_OTHER; // tj3Decompress8 return -1 on some cameras, but frame is still valid
     return 0;
 #else
     return uvc_mjpeg_convert(in, out);
@@ -317,7 +317,7 @@ uvc_error_t uvc_mjpeg2rgba(uvc_frame_t *in, uvc_frame_t *out) {
 #ifdef LIBUVC_USE_TURBOJPEG
     if (tjInstance == NULL) return UVC_ERROR_OTHER;
     int res = tj3Decompress8(tjInstance, in->data, in->data_bytes, out->data, 0, TJPF_RGBA);
-    if (res < 0) return UVC_ERROR_OTHER;
+    //if (res < 0) return UVC_ERROR_OTHER; // tj3Decompress8 return -1 on some cameras, but frame is still valid
     return 0;
 #else
     return uvc_mjpeg_convert(in, out);
