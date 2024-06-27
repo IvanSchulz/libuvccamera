@@ -30,14 +30,21 @@
 #include <android/native_window.h>
 #include "objectarray.h"
 #include "RotateImage.h"
+#include <media/NdkMediaCodec.h>
+#include <media/NdkMediaFormat.h>
 
 #pragma interface
+
+#define FRAME_FORMAT_YUYV 0
+#define FRAME_FORMAT_MJPEG 1
+#define FRAME_FORMAT_H264 2
+
+#define H264_CODEC_MIME "video/avc"
 
 #define DEFAULT_PREVIEW_WIDTH 640
 #define DEFAULT_PREVIEW_HEIGHT 480
 #define DEFAULT_PREVIEW_FPS_MIN 1
 #define DEFAULT_PREVIEW_FPS_MAX 30
-#define DEFAULT_PREVIEW_MODE 0
 #define DEFAULT_FRAME_ROTATION_ANGLE 0
 
 typedef uvc_error_t (*convFunc_t)(uvc_frame_t *in, uvc_frame_t *out);
@@ -60,7 +67,7 @@ private:
 	// preview view
 	ANativeWindow *mPreviewWindow;
 	volatile bool mIsRunning;
-	int requestWidth, requestHeight, requestMode;
+	int requestWidth, requestHeight, frameFormat;
 	int requestMinFps, requestMaxFps;
 	int frameWidth, frameHeight;
 	// The angle at which the image frame needs to be rotated
@@ -70,7 +77,6 @@ private:
 	// Whether to mirror vertically
 	int frameVerticalMirror;
 	RotateImage *rotateImage;
-	size_t frameBytes;
 	pthread_t preview_thread;
 	pthread_mutex_t preview_mutex;
 	pthread_cond_t preview_sync;
@@ -127,6 +133,16 @@ private:
 	void do_capture_idle_loop(JNIEnv *env);
 	void do_capture_callback(JNIEnv *env, uvc_frame_t *frame);
 	void callbackPixelFormatChanged();
+	uvc_frame_format getUvcFrameFormat(int mode);
+	// decoder for H264 format
+	AMediaCodec *decoder = nullptr;
+	AMediaFormat *decoderFormat = nullptr;
+	int decoderColorFormat = 0;
+	pthread_t decoderThread;
+	static void *decoder_thread_func(void *vptr_args);
+	void processDecoderOutput();
+	int startDecoder();
+	void stopDecoder();
 public:
 	UVCPreview(uvc_device_handle_t *devh);
 	~UVCPreview();
@@ -144,8 +160,8 @@ public:
 	void setVerticalMirror(int verticalMirror);
 	void setCameraAngle(int cameraAngle);
 
-    int getCurrentFps();
-    int getDefaultCameraFps();
+	int getCurrentFps();
+	int getDefaultCameraFps();
 	int getFrameWidth();
 	int getFrameHeight();
 };

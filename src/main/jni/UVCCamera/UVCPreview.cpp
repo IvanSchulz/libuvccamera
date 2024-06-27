@@ -42,7 +42,7 @@
 #include "libuvc_internal.h"
 
 #define	LOCAL_DEBUG 0
-#define MAX_FRAME 1 // previewFrames buffer size. Less value - less camera latency, but can drop the frames
+#define MAX_FRAME 2 // previewFrames buffer size. Less value - less camera latency, but can drop the frames
 #define FRAME_POOL_SZ (MAX_FRAME + 2)
 
 static int previewFormatPixelBytes = 4;
@@ -56,14 +56,13 @@ UVCPreview::UVCPreview(uvc_device_handle_t *devh)
 	requestMinFps(DEFAULT_PREVIEW_FPS_MIN),
 	requestMaxFps(DEFAULT_PREVIEW_FPS_MAX),
 	defaultCameraFps(DEFAULT_PREVIEW_FPS_MAX),
-	requestMode(DEFAULT_PREVIEW_MODE),
+	frameFormat(FRAME_FORMAT_YUYV),
 	frameWidth(DEFAULT_PREVIEW_WIDTH),
 	frameHeight(DEFAULT_PREVIEW_HEIGHT),
 	frameRotationAngle(DEFAULT_FRAME_ROTATION_ANGLE),
 	frameHorizontalMirror(0),
 	frameVerticalMirror(0),
 	rotateImage(NULL),
-	frameBytes(DEFAULT_PREVIEW_WIDTH * DEFAULT_PREVIEW_HEIGHT * 2),	// YUYV
 	previewFormat(AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM),
 	mIsRunning(false),
 	mIsCapturing(false),
@@ -72,8 +71,8 @@ UVCPreview::UVCPreview(uvc_device_handle_t *devh)
 	mFrameCallbackObj(NULL),
     // Pixel format conversion method
 	mFrameCallbackFunc(NULL),
-    currentFps(0),
-    framesCounter(0),
+	currentFps(0),
+	framesCounter(0),
 	callbackPixelBytes(2) {
 
 	ENTER();
@@ -195,16 +194,16 @@ int UVCPreview::setPreviewSize(int width, int height, int cameraAngle, int min_f
 	ENTER();
 	
 	int result = 0;
-	if ((requestWidth != width) || (requestHeight != height) || (requestMode != mode)) {
+	if ((requestWidth != width) || (requestHeight != height) || (frameFormat != mode)) {
 		requestWidth = width;
 		requestHeight = height;
 		requestMinFps = min_fps;
 		requestMaxFps = max_fps;
-		requestMode = mode;
+		frameFormat = mode;
 
 		uvc_stream_ctrl_t ctrl;
-		result = uvc_get_stream_ctrl_format_size_fps(mDeviceHandle, &ctrl,
-			!requestMode ? UVC_FRAME_FORMAT_YUYV : UVC_FRAME_FORMAT_MJPEG,
+
+		result = uvc_get_stream_ctrl_format_size_fps(mDeviceHandle, &ctrl, getUvcFrameFormat(mode),
 			requestWidth, requestHeight, requestMinFps, requestMaxFps);
 	}
 
@@ -216,6 +215,18 @@ int UVCPreview::setPreviewSize(int width, int height, int cameraAngle, int min_f
 	}
 	
 	RETURN(result, int);
+}
+
+uvc_frame_format UVCPreview::getUvcFrameFormat(int mode) {
+	switch (mode){
+		case FRAME_FORMAT_H264:
+			return UVC_FRAME_FORMAT_H264;
+		case FRAME_FORMAT_MJPEG:
+			return UVC_FRAME_FORMAT_MJPEG;
+		case FRAME_FORMAT_YUYV:
+		default:
+			return UVC_FRAME_FORMAT_YUYV;
+	}
 }
 
 // Set preview display
@@ -406,6 +417,7 @@ int UVCPreview::stopPreview() {
 		}
 		clearDisplay();
 	}
+	stopDecoder();
 	clearPreviewFrame();
 	clearCaptureFrame();
 	pthread_mutex_lock(&preview_mutex);
@@ -432,9 +444,8 @@ void UVCPreview::uvc_preview_frame_callback(uvc_frame_t *frame, void *vptr_args)
 	if (UNLIKELY(frame->width != preview->frameWidth || frame->height != preview->frameHeight)) {
 
 #if LOCAL_DEBUG
-		LOGI("broken frame!:format=%d,frameBytes=%zu(%d,%d/%d,%d)",
-			frame->frame_format, preview->frameBytes,
-			frame->width, frame->height, preview->frameWidth, preview->frameHeight);
+		LOGI("broken frame! format=%d, size (frame/preview): (%d,%d/%d,%d)",
+			frame->frame_format, frame->width, frame->height, preview->frameWidth, preview->frameHeight);
 #endif
 		return;
 	}
@@ -527,8 +538,7 @@ int UVCPreview::prepare_preview(uvc_stream_ctrl_t *ctrl) {
 	uvc_error_t result;
 
 	ENTER();
-	result = uvc_get_stream_ctrl_format_size_fps(mDeviceHandle, ctrl,
-		!requestMode ? UVC_FRAME_FORMAT_YUYV : UVC_FRAME_FORMAT_MJPEG,
+	result = uvc_get_stream_ctrl_format_size_fps(mDeviceHandle, ctrl, getUvcFrameFormat(frameFormat),
 		requestWidth, requestHeight, requestMinFps, requestMaxFps
 	);
 	if (LIKELY(!result)) {
@@ -541,18 +551,26 @@ int UVCPreview::prepare_preview(uvc_stream_ctrl_t *ctrl) {
 			defaultCameraFps = (int)(10000000 / frame_desc->dwDefaultFrameInterval);
 			frameWidth = frame_desc->wWidth;
 			frameHeight = frame_desc->wHeight;
-			LOGI("frameSize=(%d,%d)@%s", frameWidth, frameHeight, (!requestMode ? "YUYV" : "MJPEG"));
+			LOGI("frameSize=(%d,%d)@%s", frameWidth, frameHeight,
+				 (frameFormat == FRAME_FORMAT_YUYV ? "YUYV"
+				 : frameFormat == FRAME_FORMAT_MJPEG ? "MJPEG"
+				 : frameFormat == FRAME_FORMAT_H264 ? "H264" : "Unknown"));
 			pthread_mutex_lock(&preview_mutex);
 			if (LIKELY(mPreviewWindow)) {
 				ANativeWindow_setBuffersGeometry(mPreviewWindow, frameWidth, frameHeight, previewFormat);
 			}
 			pthread_mutex_unlock(&preview_mutex);
 			mIsRunning = true;
+
+			// initialize decoder
+			if (frameFormat == FRAME_FORMAT_H264){
+				int res = startDecoder();
+				if (res) return res;
+			}
 		} else {
 			frameWidth = requestWidth;
 			frameHeight = requestHeight;
 		}
-		frameBytes = frameWidth * frameHeight * (!requestMode ? 2 : 4);
 	} else {
 		LOGE("could not negotiate with camera:err=%d", result);
 	}
@@ -583,6 +601,16 @@ convFunc_t UVCPreview::getConvertFunc(uvc_frame_t *frame, int32_t outputPixelFor
 				default:
 					return nullptr;
 			}
+		case UVC_FRAME_FORMAT_NV12: // H264 decoder output
+			switch (outputPixelFormat){
+				case AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM:
+				case AHARDWAREBUFFER_FORMAT_R8G8B8X8_UNORM:
+					return uvc_nv12_2_rgbx;
+				case AHARDWAREBUFFER_FORMAT_R5G6B5_UNORM:
+					// TODO uvc_nv12_2_rgb565
+				default:
+					return nullptr;
+			}
 		default:
 			return nullptr;
 	}
@@ -602,30 +630,42 @@ void UVCPreview::do_preview(uvc_stream_ctrl_t *ctrl) {
 #if LOCAL_DEBUG
 		LOGI("Streaming...");
 #endif
-
 		clock_gettime(CLOCK_REALTIME, &tStart);
 		for (; LIKELY(isRunning());) {
 			frame = waitPreviewFrame();
 			if (LIKELY(frame)) {
-				if (rotateImage && frame->frame_format == UVC_FRAME_FORMAT_YUYV) {
-					if (frameRotationAngle == 90) {
-						rotateImage->rotate_yuyv_90(frame);
-					} else if (frameRotationAngle == 180) {
-						rotateImage->rotate_yuyv_180(frame);
-					} else if (frameRotationAngle == 270) {
-						rotateImage->rotate_yuyv_270(frame);
+				if (frame->frame_format == UVC_FRAME_FORMAT_H264){
+					// process input buffer
+					if (decoder) {
+						ssize_t ind = AMediaCodec_dequeueInputBuffer(decoder, 10000);
+						if (ind >= 0) {
+							uint8_t *inputBuffer = AMediaCodec_getInputBuffer(decoder, ind, nullptr);
+							memcpy(inputBuffer, frame->data, frame->data_bytes);
+							uint64_t time = frame->capture_time_finished.tv_sec * 1000000 + frame->capture_time_finished.tv_nsec / 1000;
+							AMediaCodec_queueInputBuffer(decoder, ind, 0, frame->data_bytes, time, isRunning() ? 0 : AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM);
+						}
 					}
-					if (frameHorizontalMirror) {
-						rotateImage->horizontal_mirror_yuyv(frame);
+					recycle_frame(frame);
+				} else {
+					if (rotateImage && frame->frame_format == UVC_FRAME_FORMAT_YUYV) {
+						if (frameRotationAngle == 90) {
+							rotateImage->rotate_yuyv_90(frame);
+						} else if (frameRotationAngle == 180) {
+							rotateImage->rotate_yuyv_180(frame);
+						} else if (frameRotationAngle == 270) {
+							rotateImage->rotate_yuyv_270(frame);
+						}
+						if (frameHorizontalMirror) {
+							rotateImage->horizontal_mirror_yuyv(frame);
+						}
+						if (frameVerticalMirror) {
+							rotateImage->vertical_mirror_yuyv(frame);
+						}
 					}
-					if (frameVerticalMirror) {
-						rotateImage->vertical_mirror_yuyv(frame);
-					}
+					if (!mPreviewConvertFunc) mPreviewConvertFunc = getConvertFunc(frame, previewFormat);
+					converted = draw_preview_one(frame, &mPreviewWindow, mPreviewConvertFunc, previewFormatPixelBytes);
+					addCaptureFrame(converted);
 				}
-                if (!mPreviewConvertFunc) mPreviewConvertFunc = getConvertFunc(frame, previewFormat);
-				converted = draw_preview_one(frame, &mPreviewWindow, mPreviewConvertFunc, previewFormatPixelBytes);
-				addCaptureFrame(converted);
-
 				framesCounter++;
 				clock_gettime(CLOCK_REALTIME, &tEnd);
 				if (tEnd.tv_sec - tStart.tv_sec >= 1) {
@@ -799,7 +839,6 @@ void UVCPreview::addCaptureFrame(uvc_frame_t *frame) {
 			recycle_frame(captureQueu);
 		}
 		captureQueu = frame;
-
 		pthread_cond_broadcast(&capture_sync);
 	}else {
 	    // put back into frame pool
@@ -1011,4 +1050,106 @@ int UVCPreview::getFrameWidth() {
 
 int UVCPreview::getFrameHeight() {
 	return frameHeight;
+}
+
+int UVCPreview::startDecoder() {
+	decoder = AMediaCodec_createDecoderByType(H264_CODEC_MIME);
+	if (!decoder){
+		LOGE("Create mediacodec error.");
+		return -1;
+	}
+
+	decoderFormat = AMediaFormat_new();
+	if (!decoderFormat){
+		LOGE("Create media format error.");
+		stopDecoder();
+		return -2;
+	}
+	AMediaFormat_setInt32(decoderFormat, AMEDIAFORMAT_KEY_WIDTH, frameWidth);
+	AMediaFormat_setInt32(decoderFormat, AMEDIAFORMAT_KEY_HEIGHT, frameHeight);
+	AMediaFormat_setInt32(decoderFormat, AMEDIAFORMAT_KEY_COLOR_FORMAT, 21);// YUV420SemiPlanar
+	AMediaFormat_setString(decoderFormat, AMEDIAFORMAT_KEY_MIME, H264_CODEC_MIME);
+
+	media_status_t status = AMediaCodec_configure(decoder, decoderFormat, nullptr, nullptr, 0);
+	if (status) {
+		LOGE("Mediacodec configure error: %d", status);
+		stopDecoder();
+		return -3;
+	}
+
+	AMediaFormat *decoderOutputFormat = AMediaCodec_getOutputFormat(decoder);
+	if (decoderOutputFormat) {
+		AMediaFormat_getInt32(decoderOutputFormat, AMEDIAFORMAT_KEY_COLOR_FORMAT, &decoderColorFormat);
+		LOGI("decoderColorFormat: %d", decoderColorFormat);
+		AMediaFormat_delete(decoderOutputFormat);
+	}
+
+	status = AMediaCodec_start(decoder);
+	if (status) {
+		LOGE("Start mediacodec error: %d", status);
+		stopDecoder();
+		return -4;
+	}
+
+	int res = pthread_create(&decoderThread, NULL, decoder_thread_func, (void *)this);
+	if (res) {
+		LOGE("Start decoder thread error: %d", res);
+		stopDecoder();
+		return res;
+	}
+
+	return 0;
+}
+
+void UVCPreview::stopDecoder() {
+	if (decoder){
+		pthread_join(decoderThread, NULL);
+		AMediaCodec_stop(decoder);
+		AMediaCodec_delete(decoder);
+		decoder = nullptr;
+	}
+	if (decoderFormat) {
+		AMediaFormat_delete(decoderFormat);
+		decoderFormat = nullptr;
+	}
+}
+
+void *UVCPreview::decoder_thread_func(void *vptr_args) {
+	ENTER();
+	UVCPreview *preview = reinterpret_cast<UVCPreview *>(vptr_args);
+	if (LIKELY(preview)) {
+		preview->processDecoderOutput();
+	}
+	PRE_EXIT();
+	pthread_exit(NULL);
+}
+
+void UVCPreview::processDecoderOutput() {
+	uvc_frame *frame;
+	uvc_frame *converted;
+	size_t frameSize = frameWidth * frameHeight * 2;
+	for (; LIKELY(isRunning());) {
+		if (decoder) {
+			AMediaCodecBufferInfo bufferInfo;
+			ssize_t ind = AMediaCodec_dequeueOutputBuffer(decoder, &bufferInfo, 10000);
+			if (ind >= 0) {
+				if (bufferInfo.flags & AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM) break;
+				uint8_t *outputBuffer = AMediaCodec_getOutputBuffer(decoder, ind, nullptr);
+				if (bufferInfo.size > 0){
+					frame = get_frame(frameSize);
+					if (LIKELY(frame)) {
+						frame->width = frameWidth;
+						frame->height = frameHeight;
+						frame->data_bytes = bufferInfo.size;
+						frame->frame_format = UVC_FRAME_FORMAT_NV12;
+						memcpy(frame->data, outputBuffer, bufferInfo.size);
+						if (!mPreviewConvertFunc) mPreviewConvertFunc = getConvertFunc(frame, previewFormat);
+						converted = draw_preview_one(frame, &mPreviewWindow, mPreviewConvertFunc, previewFormatPixelBytes);
+						addCaptureFrame(converted);
+					}
+				}
+				AMediaCodec_releaseOutputBuffer(decoder, ind, false);
+			}
+		}
+	}
 }

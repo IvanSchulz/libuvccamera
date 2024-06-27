@@ -362,25 +362,18 @@ char *UVCDiags::getSupportedSize(const uvc_device_handle_t *deviceHandle) {
 				{
 					writer.StartObject();
 					{
-						switch (fmt_desc->bDescriptorSubtype) {
-						case UVC_VS_FORMAT_UNCOMPRESSED:
-						case UVC_VS_FORMAT_MJPEG:
-							write(writer, "index", fmt_desc->bFormatIndex);
-							write(writer, "type", fmt_desc->bDescriptorSubtype);
-							write(writer, "default", fmt_desc->bDefaultFrameIndex);
-							writer.String("size");
-							writer.StartArray();
-							DL_FOREACH(fmt_desc->frame_descs, frame_desc)
-							{
-								snprintf(buf, sizeof(buf), "%dx%d", frame_desc->wWidth, frame_desc->wHeight);
-								buf[sizeof(buf)-1] = '\0';
-								writer.String(buf);
-							}
-							writer.EndArray();
-							break;
-						default:
-							break;
+						write(writer, "index", fmt_desc->bFormatIndex);
+						write(writer, "type", fmt_desc->bDescriptorSubtype);
+						write(writer, "default", fmt_desc->bDefaultFrameIndex);
+						writer.String("size");
+						writer.StartArray();
+						DL_FOREACH(fmt_desc->frame_descs, frame_desc) {
+							snprintf(buf, sizeof(buf), "%dx%d", frame_desc->wWidth,
+									 frame_desc->wHeight);
+							buf[sizeof(buf) - 1] = '\0';
+							writer.String(buf);
 						}
+						writer.EndArray();
 					}
 					writer.EndObject();
 				}

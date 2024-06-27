@@ -819,6 +819,7 @@ uvc_error_t uvc_any2rgbx(uvc_frame_t *in, uvc_frame_t *out);		// XXX
 uvc_error_t uvc_yuyv2rgbx(uvc_frame_t *in, uvc_frame_t *out);		// XXX
 uvc_error_t uvc_uyvy2rgbx(uvc_frame_t *in, uvc_frame_t *out);		// XXX
 uvc_error_t uvc_rgb2rgbx(uvc_frame_t *in, uvc_frame_t *out);		// XXX
+uvc_error_t uvc_nv12_2_rgbx(uvc_frame_t *in, uvc_frame_t *out); // XXX added
 
 #ifdef LIBUVC_HAS_JPEG
 uvc_error_t uvc_mjpeg2rgb(uvc_frame_t *in, uvc_frame_t *out);

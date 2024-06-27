@@ -806,3 +806,70 @@ uvc_error_t uvc_rgb2rgbx(uvc_frame_t *in, uvc_frame_t *out) {
 #endif
     return UVC_SUCCESS;
 }
+
+#define I_NV12_2_RGBX_2(py, puv, prgbx) { \
+    int r = (22987 * ((puv)[1] - 128)) >> 14; \
+    int g = (-5636 * (*(puv) - 128) - 11698 * ((puv)[1] - 128)) >> 14; \
+    int b = (29049 * (*(puv) - 128)) >> 14; \
+    (prgbx)[0] = sat(*(py) + r); \
+    (prgbx)[1] = sat(*(py) + g); \
+    (prgbx)[2] = sat(*(py) + b); \
+    (prgbx)[3] = 0xff; \
+    (prgbx)[4] = sat((py)[1] + r); \
+    (prgbx)[5] = sat((py)[1] + g); \
+    (prgbx)[6] = sat((py)[1] + b); \
+    (prgbx)[7] = 0xff; \
+    }
+#define I_NV12_2_RGBX_4(py, puv, prgbx) I_NV12_2_RGBX_2(py, puv, prgbx); I_NV12_2_RGBX_2(py + 2, puv + 2, prgbx + 8);
+#define I_NV12_2_RGBX_8(py, puv, prgbx) I_NV12_2_RGBX_4(py, puv, prgbx); I_NV12_2_RGBX_4(py + 4, puv + 4, prgbx + 16);
+
+/** @brief Convert a frame from NV12 to RGBX
+ * @ingroup frame
+ *
+ * @param in NV12 frame
+ * @param out RGBX frame
+ */
+uvc_error_t uvc_nv12_2_rgbx(uvc_frame_t *in, uvc_frame_t *out) {
+    if (in->frame_format != UVC_FRAME_FORMAT_NV12)
+        return UVC_ERROR_INVALID_PARAM;
+
+    if (uvc_ensure_frame_size(out, in->width * in->height * 4) < 0)
+        return UVC_ERROR_NO_MEM;
+
+    out->width = in->width;
+    out->height = in->height;
+    out->frame_format = UVC_FRAME_FORMAT_RGBX;
+    out->step = in->width * 4;
+    out->sequence = in->sequence;
+    out->capture_time = in->capture_time;
+    out->capture_time_finished = in->capture_time_finished;
+    out->source = in->source;
+
+    uint8_t *py = in->data;
+    uint8_t *puv = py + in->width * in->height;
+    uint8_t *prgbx = out->data;
+    uint8_t *prgbx_end = prgbx + out->data_bytes;
+    uint32_t w = in->width;
+    uint32_t i = 0;
+    uint8_t c = 0;
+
+    while (prgbx < prgbx_end) {
+        I_NV12_2_RGBX_8(py, puv, prgbx);
+
+        prgbx += 32;
+        py += 8;
+        puv += 8;
+        i += 8;
+        if (i >= w){
+            if (c == 0) {
+                puv -= i;
+                c++;
+            }else{
+                c = 0;
+            }
+            i = 0;
+        }
+    }
+
+    return UVC_SUCCESS;
+}

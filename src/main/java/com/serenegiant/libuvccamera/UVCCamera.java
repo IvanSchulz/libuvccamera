@@ -44,15 +44,16 @@ public class UVCCamera {
 	private static final String TAG = UVCCamera.class.getSimpleName();
 	private static final String DEFAULT_USBFS = "/dev/bus/usb";
 
+	public static final int FRAME_FORMAT_YUYV = 0;
+	public static final int FRAME_FORMAT_MJPEG = 1;
+	public static final int FRAME_FORMAT_H264 = 2;
+
 	public static final int DEFAULT_PREVIEW_WIDTH = 640;
 	public static final int DEFAULT_PREVIEW_HEIGHT = 480;
-	public static final int DEFAULT_PREVIEW_MODE = 0;
+	public static final int DEFAULT_PREVIEW_MODE = FRAME_FORMAT_YUYV;
 	public static final int DEFAULT_PREVIEW_MIN_FPS = 1;
 	public static final int DEFAULT_PREVIEW_MAX_FPS = 30;
 	public static final int DEFAULT_CAMERA_ANGLE = 0;
-
-	public static final int FRAME_FORMAT_YUYV = 0;
-	public static final int FRAME_FORMAT_MJPEG = 1;
 
 	public static final int PIXEL_FORMAT_RAW = 0;
 	public static final int PIXEL_FORMAT_YUV = 1;
@@ -304,7 +305,7 @@ public class UVCCamera {
 	 * Set preview size and preview mode
 	 * @param width
 	 * @param height
-	 * @param frameFormat either FRAME_FORMAT_YUYV(0) or FRAME_FORMAT_MJPEG(1)
+	 * @param frameFormat either FRAME_FORMAT_YUYV(0), FRAME_FORMAT_MJPEG(1) or FRAME_FORMAT_H264(2)
 	 */
 	public void setPreviewSize(final int width, final int height, final int frameFormat) {
 		if (!isLoaded) return;
@@ -316,7 +317,7 @@ public class UVCCamera {
 	 * @param width
 	 * @param height
 	 * @param cameraAngle The angle of the camera itself, the image obtained from the camera will be rotated according to this angle
-	 * @param frameFormat either FRAME_FORMAT_YUYV(0) or FRAME_FORMAT_MJPEG(1)
+	 * @param frameFormat either FRAME_FORMAT_YUYV(0), FRAME_FORMAT_MJPEG(1) or FRAME_FORMAT_H264(2)
 	 */
 	public void setPreviewSize(final int width, final int height, final int cameraAngle, final int frameFormat) {
 		if (!isLoaded) return;
@@ -330,7 +331,7 @@ public class UVCCamera {
 	 * @param cameraAngle The angle of the camera itself, the image obtained from the camera will be rotated according to this angle
 	 * @param min_fps
 	 * @param max_fps
-	 * @param frameFormat either FRAME_FORMAT_YUYV(0) or FRAME_FORMAT_MJPEG(1)
+	 * @param frameFormat either FRAME_FORMAT_YUYV(0), FRAME_FORMAT_MJPEG(1) or FRAME_FORMAT_H264(2)
 	 */
 	public void setPreviewSize(final int width, final int height, final int cameraAngle, final int min_fps, final int max_fps, final int frameFormat) {
 		if (!isLoaded) return;
@@ -354,7 +355,18 @@ public class UVCCamera {
 
 	public List<Size> getSupportedSizeList() {
 		if (!isLoaded) return null;
-		final int type = (mCurrentFrameFormat > 0) ? 6 : 4;
+		int type = -1;
+		switch(mCurrentFrameFormat){
+			case FRAME_FORMAT_YUYV:
+				type = 4;
+				break;
+			case FRAME_FORMAT_MJPEG:
+				type = 6;
+				break;
+			case FRAME_FORMAT_H264:
+				type = 16;
+				break;
+		}
 		return getSupportedSize(type, mSupportedSize);
 	}
 
@@ -1086,7 +1098,6 @@ public class UVCCamera {
 		if (!isLoaded) return false;
 		return nativeIsRunning(mNativePtr);
 	}
-
 	private static final String[] SUPPORTS_CTRL = {
 			"D0:  Scanning Mode",
 			"D1:  Auto-Exposure Mode",
