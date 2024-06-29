@@ -138,11 +138,20 @@ private:
 	AMediaCodec *decoder = nullptr;
 	AMediaFormat *decoderFormat = nullptr;
 	int decoderColorFormat = 0;
-	pthread_t decoderThread;
-	static void *decoder_thread_func(void *vptr_args);
+	pthread_t decoderOutputThread;
+	pthread_t decoderConvertThread;
+	ObjectArray<uvc_frame_t *> decoderOutputFrames;
+	pthread_mutex_t decoder_mutex;
+	pthread_cond_t decoder_sync;
+	static void *decoder_output_func(void *vptr_args);
+	static void *decoder_convert_func(void *vptr_args);
 	void processDecoderOutput();
+	void processDecoderConvert();
 	int startDecoder();
 	void stopDecoder();
+	void addDecoderFrame(uvc_frame_t *frame);
+	uvc_frame_t *waitDecoderFrame();
+	void clearDecoderFrame();
 public:
 	UVCPreview(uvc_device_handle_t *devh);
 	~UVCPreview();

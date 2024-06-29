@@ -84,6 +84,8 @@ UVCPreview::UVCPreview(uvc_device_handle_t *devh)
 //	
 	pthread_mutex_init(&pool_mutex, NULL);
 
+	pthread_cond_init(&decoder_sync, NULL);
+	pthread_mutex_init(&decoder_mutex, NULL);
 	EXIT();
 }
 
@@ -99,12 +101,15 @@ UVCPreview::~UVCPreview() {
 	mCaptureWindow = NULL;
 	clearPreviewFrame();
 	clearCaptureFrame();
+	clearDecoderFrame();
 	clear_pool();
 	pthread_mutex_destroy(&preview_mutex);
 	pthread_cond_destroy(&preview_sync);
 	pthread_mutex_destroy(&capture_mutex);
 	pthread_cond_destroy(&capture_sync);
 	pthread_mutex_destroy(&pool_mutex);
+	pthread_mutex_destroy(&decoder_mutex);
+	pthread_cond_destroy(&decoder_sync);
 	EXIT();
 }
 
@@ -637,7 +642,7 @@ void UVCPreview::do_preview(uvc_stream_ctrl_t *ctrl) {
 				if (frame->frame_format == UVC_FRAME_FORMAT_H264){
 					// process input buffer
 					if (decoder) {
-						ssize_t ind = AMediaCodec_dequeueInputBuffer(decoder, 10000);
+						ssize_t ind = AMediaCodec_dequeueInputBuffer(decoder, 1000);
 						if (ind >= 0) {
 							uint8_t *inputBuffer = AMediaCodec_getInputBuffer(decoder, ind, nullptr);
 							memcpy(inputBuffer, frame->data, frame->data_bytes);
@@ -676,6 +681,7 @@ void UVCPreview::do_preview(uvc_stream_ctrl_t *ctrl) {
 			}
 		}
 		pthread_cond_signal(&capture_sync);
+		pthread_cond_signal(&decoder_sync);
 #if LOCAL_DEBUG
 		LOGI("preview_thread_func:wait for all callbacks complete");
 #endif
@@ -1068,6 +1074,9 @@ int UVCPreview::startDecoder() {
 	AMediaFormat_setInt32(decoderFormat, AMEDIAFORMAT_KEY_WIDTH, frameWidth);
 	AMediaFormat_setInt32(decoderFormat, AMEDIAFORMAT_KEY_HEIGHT, frameHeight);
 	AMediaFormat_setInt32(decoderFormat, AMEDIAFORMAT_KEY_COLOR_FORMAT, 21);// YUV420SemiPlanar
+	if (android_get_device_api_level() >= 30) {
+		AMediaFormat_setInt32(decoderFormat, "low-latency", 1); // AMEDIAFORMAT_KEY_LOW_LATENCY
+	}
 	AMediaFormat_setString(decoderFormat, AMEDIAFORMAT_KEY_MIME, H264_CODEC_MIME);
 
 	media_status_t status = AMediaCodec_configure(decoder, decoderFormat, nullptr, nullptr, 0);
@@ -1091,9 +1100,16 @@ int UVCPreview::startDecoder() {
 		return -4;
 	}
 
-	int res = pthread_create(&decoderThread, NULL, decoder_thread_func, (void *)this);
+	int res = pthread_create(&decoderOutputThread, NULL, decoder_output_func, (void *)this);
 	if (res) {
-		LOGE("Start decoder thread error: %d", res);
+		LOGE("Start decoder output thread error: %d", res);
+		stopDecoder();
+		return res;
+	}
+
+	res = pthread_create(&decoderConvertThread, NULL, decoder_convert_func, (void *)this);
+	if (res) {
+		LOGE("Start decoder convert thread error: %d", res);
 		stopDecoder();
 		return res;
 	}
@@ -1103,7 +1119,8 @@ int UVCPreview::startDecoder() {
 
 void UVCPreview::stopDecoder() {
 	if (decoder){
-		pthread_join(decoderThread, NULL);
+		if (decoderOutputThread) pthread_join(decoderOutputThread, NULL);
+		if (decoderConvertThread) pthread_join(decoderConvertThread, NULL);
 		AMediaCodec_stop(decoder);
 		AMediaCodec_delete(decoder);
 		decoder = nullptr;
@@ -1112,9 +1129,10 @@ void UVCPreview::stopDecoder() {
 		AMediaFormat_delete(decoderFormat);
 		decoderFormat = nullptr;
 	}
+	clearDecoderFrame();
 }
 
-void *UVCPreview::decoder_thread_func(void *vptr_args) {
+void *UVCPreview::decoder_output_func(void *vptr_args) {
 	ENTER();
 	UVCPreview *preview = reinterpret_cast<UVCPreview *>(vptr_args);
 	if (LIKELY(preview)) {
@@ -1124,32 +1142,97 @@ void *UVCPreview::decoder_thread_func(void *vptr_args) {
 	pthread_exit(NULL);
 }
 
+void *UVCPreview::decoder_convert_func(void *vptr_args) {
+	ENTER();
+	UVCPreview *preview = reinterpret_cast<UVCPreview *>(vptr_args);
+	if (LIKELY(preview)) {
+		preview->processDecoderConvert();
+	}
+	PRE_EXIT();
+	pthread_exit(NULL);
+}
+
 void UVCPreview::processDecoderOutput() {
 	uvc_frame *frame;
-	uvc_frame *converted;
-	size_t frameSize = frameWidth * frameHeight * 2;
+	size_t nv12FrameSize = frameWidth * frameHeight + frameWidth * frameHeight / 2;
 	for (; LIKELY(isRunning());) {
 		if (decoder) {
 			AMediaCodecBufferInfo bufferInfo;
-			ssize_t ind = AMediaCodec_dequeueOutputBuffer(decoder, &bufferInfo, 10000);
+			ssize_t ind = AMediaCodec_dequeueOutputBuffer(decoder, &bufferInfo, 1000);
 			if (ind >= 0) {
 				if (bufferInfo.flags & AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM) break;
 				uint8_t *outputBuffer = AMediaCodec_getOutputBuffer(decoder, ind, nullptr);
 				if (bufferInfo.size > 0){
-					frame = get_frame(frameSize);
+					frame = get_frame(nv12FrameSize);
 					if (LIKELY(frame)) {
 						frame->width = frameWidth;
 						frame->height = frameHeight;
 						frame->data_bytes = bufferInfo.size;
 						frame->frame_format = UVC_FRAME_FORMAT_NV12;
 						memcpy(frame->data, outputBuffer, bufferInfo.size);
-						if (!mPreviewConvertFunc) mPreviewConvertFunc = getConvertFunc(frame, previewFormat);
-						converted = draw_preview_one(frame, &mPreviewWindow, mPreviewConvertFunc, previewFormatPixelBytes);
-						addCaptureFrame(converted);
+						addDecoderFrame(frame);
 					}
 				}
 				AMediaCodec_releaseOutputBuffer(decoder, ind, false);
 			}
 		}
 	}
+}
+
+// convert NV12 frame and draw
+void UVCPreview::processDecoderConvert() {
+	uvc_frame *frame;
+	uvc_frame *converted;
+	clearDecoderFrame();
+	for (; LIKELY(isRunning());) {
+		frame = waitDecoderFrame();
+		if (LIKELY(frame)) {
+			if (!mPreviewConvertFunc) mPreviewConvertFunc = getConvertFunc(frame, previewFormat);
+			converted = draw_preview_one(frame, &mPreviewWindow, mPreviewConvertFunc, previewFormatPixelBytes);
+			addCaptureFrame(converted);
+		}
+	}
+}
+
+void UVCPreview::addDecoderFrame(uvc_frame_t *frame) {
+	pthread_mutex_lock(&decoder_mutex);
+	if (isRunning() && (decoderOutputFrames.size() < MAX_FRAME)) {
+		// Add to queue
+		decoderOutputFrames.put(frame);
+		frame = NULL;
+		// Send a signal to another thread that is in a blocking waiting state to get it out of the blocking state and continue execution.
+		pthread_cond_signal(&decoder_sync);
+	}
+	pthread_mutex_unlock(&decoder_mutex);
+	if (frame) {
+		// put back into frame pool
+		recycle_frame(frame);
+	}
+}
+
+uvc_frame_t *UVCPreview::waitDecoderFrame() {
+	uvc_frame_t *frame = NULL;
+	pthread_mutex_lock(&decoder_mutex);
+	{
+		if (!decoderOutputFrames.size()) {
+			// Wait for decoder_sync, unlock decoder_mutex
+			pthread_cond_wait(&decoder_sync, &decoder_mutex);
+		}
+		if (LIKELY(isRunning() && decoderOutputFrames.size() > 0)) {
+			frame = decoderOutputFrames.remove(0);
+		}
+	}
+	pthread_mutex_unlock(&decoder_mutex);
+	return frame;
+}
+
+void UVCPreview::clearDecoderFrame() {
+	pthread_mutex_lock(&decoder_mutex);
+	{
+		for (int i = 0; i < decoderOutputFrames.size(); i++)
+			// put back into frame pool
+			recycle_frame(decoderOutputFrames[i]);
+		decoderOutputFrames.clear();
+	}
+	pthread_mutex_unlock(&decoder_mutex);
 }
