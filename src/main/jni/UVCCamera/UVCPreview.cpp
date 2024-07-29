@@ -414,7 +414,7 @@ int UVCPreview::stopPreview() {
         mPreviewConvertFunc = nullptr;
 		pthread_cond_signal(&preview_sync);
 		pthread_cond_signal(&capture_sync);
-		if (mIsCapturing && pthread_join(capture_thread, NULL) != EXIT_SUCCESS) {
+		if (pthread_join(capture_thread, NULL) != EXIT_SUCCESS) {
 			LOGW("UVCPreview::terminate capture thread: pthread_join failed");
 		}
 		if (pthread_join(preview_thread, NULL) != EXIT_SUCCESS) {
@@ -563,6 +563,9 @@ int UVCPreview::prepare_preview(uvc_stream_ctrl_t *ctrl) {
 			pthread_mutex_lock(&preview_mutex);
 			if (LIKELY(mPreviewWindow)) {
 				ANativeWindow_setBuffersGeometry(mPreviewWindow, frameWidth, frameHeight, previewFormat);
+			}
+			if (LIKELY(mCaptureWindow)) {
+				ANativeWindow_setBuffersGeometry(mCaptureWindow, frameWidth, frameHeight, previewFormat);
 			}
 			pthread_mutex_unlock(&preview_mutex);
 			mIsRunning = true;
