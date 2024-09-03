@@ -198,7 +198,7 @@ int UVCCamera::release() {
 	// Clear camera feature flag
 	clearCameraParams();
 	if (mUsbFs) {
-		close(mFd);
+		if (mFd) close(mFd);
 		mFd = 0;
 		free(mUsbFs);
 		mUsbFs = NULL;
