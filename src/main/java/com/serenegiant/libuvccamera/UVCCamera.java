@@ -1374,14 +1374,12 @@ public class UVCCamera {
 	private static native int nativeGetAnalogVideoStandard(final long id_camera);
 
 	private native int nativeUpdateAnalogVideoLockStateLimit(final long id_camera);
-	private static native int nativeSetAnalogVideoLoackState(final long id_camera, final int state);
-	private static native int nativeGetAnalogVideoLoackState(final long id_camera);
+	private static native int nativeSetAnalogVideoLockState(final long id_camera, final int state);
+	private static native int nativeGetAnalogVideoLockState(final long id_camera);
 
 	private native int nativeUpdatePrivacyLimit(final long id_camera);
 	private static native int nativeSetPrivacy(final long id_camera, final boolean privacy);
 	private static native int nativeGetPrivacy(final long id_camera);
-	private static native void nativeFrameBufferSize(final int frameBufferSize);
-	private static native void nativeDropIncompleteFrame(final int dropIncompleteFrame);
 	private static native void nativeHorizontalMirror(final long id_camera, final int horizontalMirror);
 	private static native void nativeVerticalMirror(final long id_camera, final int verticalMirror);
 	private static native void nativeCameraAngle(final long id_camera, final int cameraAngle);
