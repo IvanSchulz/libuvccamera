@@ -48,32 +48,35 @@
 static int previewFormatPixelBytes = 4;
 
 UVCPreview::UVCPreview(uvc_device_handle_t *devh)
-:	mPreviewWindow(NULL),
-	mCaptureWindow(NULL),
-	mDeviceHandle(devh),
-	requestWidth(DEFAULT_PREVIEW_WIDTH),
-	requestHeight(DEFAULT_PREVIEW_HEIGHT),
-	requestMinFps(DEFAULT_PREVIEW_FPS_MIN),
-	requestMaxFps(DEFAULT_PREVIEW_FPS_MAX),
-	defaultCameraFps(DEFAULT_PREVIEW_FPS_MAX),
-	frameFormat(FRAME_FORMAT_YUYV),
-	frameWidth(DEFAULT_PREVIEW_WIDTH),
-	frameHeight(DEFAULT_PREVIEW_HEIGHT),
-	frameRotationAngle(DEFAULT_FRAME_ROTATION_ANGLE),
-	frameHorizontalMirror(0),
-	frameVerticalMirror(0),
-	rotateImage(NULL),
-	previewFormat(AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM),
-	mIsRunning(false),
-	mIsCapturing(false),
-	captureQueu(NULL),
+: mPreviewWindow(NULL),
+  mCaptureWindow(NULL),
+  mDeviceHandle(devh),
+  requestWidth(DEFAULT_PREVIEW_WIDTH),
+  requestHeight(DEFAULT_PREVIEW_HEIGHT),
+  requestMinFps(DEFAULT_PREVIEW_FPS_MIN),
+  requestMaxFps(DEFAULT_PREVIEW_FPS_MAX),
+  defaultCameraFps(DEFAULT_PREVIEW_FPS_MAX),
+  frameFormat(FRAME_FORMAT_YUYV),
+  frameWidth(DEFAULT_PREVIEW_WIDTH),
+  frameHeight(DEFAULT_PREVIEW_HEIGHT),
+  frameRotationAngle(DEFAULT_FRAME_ROTATION_ANGLE),
+  frameHorizontalMirror(0),
+  frameVerticalMirror(0),
+  rotateImage(NULL),
+  previewFormat(AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM),
+  mIsRunning(false),
+  mIsCapturing(false),
+  isStarting(false),
+  isStopping(false),
+  isDestroying(false),
+  captureQueu(NULL),
 	// Frame callback Java object
 	mFrameCallbackObj(NULL),
     // Pixel format conversion method
 	mFrameCallbackFunc(NULL),
-	currentFps(0),
-	framesCounter(0),
-	callbackPixelBytes(2) {
+  currentFps(0),
+  framesCounter(0),
+  callbackPixelBytes(2) {
 
 	ENTER();
 	pthread_cond_init(&preview_sync, NULL);
@@ -81,7 +84,7 @@ UVCPreview::UVCPreview(uvc_device_handle_t *devh)
 //
 	pthread_cond_init(&capture_sync, NULL);
 	pthread_mutex_init(&capture_mutex, NULL);
-//	
+//
 	pthread_mutex_init(&pool_mutex, NULL);
 
 	pthread_cond_init(&decoder_sync, NULL);
@@ -90,8 +93,8 @@ UVCPreview::UVCPreview(uvc_device_handle_t *devh)
 }
 
 UVCPreview::~UVCPreview() {
-
 	ENTER();
+    isDestroying = true;
 	if(rotateImage){
 	    SAFE_DELETE(rotateImage);
     }
@@ -110,6 +113,8 @@ UVCPreview::~UVCPreview() {
 	pthread_mutex_destroy(&pool_mutex);
 	pthread_mutex_destroy(&decoder_mutex);
 	pthread_cond_destroy(&decoder_sync);
+    isStarting = false;
+    isStopping = false;
 	EXIT();
 }
 
@@ -197,7 +202,7 @@ void UVCPreview::clear_pool() {
 // Set preview parameters
 int UVCPreview::setPreviewSize(int width, int height, int cameraAngle, int min_fps, int max_fps, int mode) {
 	ENTER();
-	
+
 	int result = 0;
 	if ((requestWidth != width) || (requestHeight != height) || (frameFormat != mode)) {
 		requestWidth = width;
@@ -218,7 +223,7 @@ int UVCPreview::setPreviewSize(int width, int height, int cameraAngle, int min_f
 	if( (frameHorizontalMirror || frameVerticalMirror || frameRotationAngle) && !rotateImage) {
 		rotateImage = new RotateImage();
 	}
-	
+
 	RETURN(result, int);
 }
 
@@ -271,7 +276,7 @@ int UVCPreview::setPreviewDisplay(ANativeWindow *preview_window) {
 
 // Set frame callback
 int UVCPreview::setFrameCallback(JNIEnv *env, jobject frame_callback_obj, int pixel_format) {
-	
+
 	ENTER();
 	pthread_mutex_lock(&capture_mutex);
 	{
@@ -379,8 +384,9 @@ void UVCPreview::clearDisplay() {
 
 // Start preview
 int UVCPreview::startPreview() {
+    if (isStopping || isStarting) return -1;
+    isStarting = true;
 	ENTER();
-
 	int result = EXIT_FAILURE;
 	if (!isRunning()) {
         mPreviewConvertFunc = nullptr;
@@ -407,37 +413,38 @@ int UVCPreview::startPreview() {
 
 // Stop preview
 int UVCPreview::stopPreview() {
-	ENTER();
-	bool b = isRunning();
-	if (LIKELY(b)) {
-		mIsRunning = false;
+    ENTER();
+    if (isStarting || isStopping) return -1;
+    isStopping = true;
+    if (LIKELY(isRunning())) {
+        mIsRunning = false;
         mPreviewConvertFunc = nullptr;
-		pthread_cond_signal(&preview_sync);
-		pthread_cond_signal(&capture_sync);
-		if (pthread_join(capture_thread, NULL) != EXIT_SUCCESS) {
-			LOGW("UVCPreview::terminate capture thread: pthread_join failed");
-		}
-		if (pthread_join(preview_thread, NULL) != EXIT_SUCCESS) {
-			LOGW("UVCPreview::terminate preview thread: pthread_join failed");
-		}
-		clearDisplay();
-	}
-	stopDecoder();
-	clearPreviewFrame();
-	clearCaptureFrame();
-	pthread_mutex_lock(&preview_mutex);
-	if (mPreviewWindow) {
-		ANativeWindow_release(mPreviewWindow);
-		mPreviewWindow = NULL;
-	}
-	pthread_mutex_unlock(&preview_mutex);
-	pthread_mutex_lock(&capture_mutex);
-	if (mCaptureWindow) {
-		ANativeWindow_release(mCaptureWindow);
-		mCaptureWindow = NULL;
-	}
-	pthread_mutex_unlock(&capture_mutex);
-	RETURN(0, int);
+        pthread_cond_signal(&preview_sync);
+        pthread_cond_signal(&capture_sync);
+        if (pthread_join(capture_thread, NULL) != EXIT_SUCCESS) {
+            LOGW("UVCPreview::terminate capture thread: pthread_join failed");
+        }
+        if (pthread_join(preview_thread, NULL) != EXIT_SUCCESS) {
+            LOGW("UVCPreview::terminate preview thread: pthread_join failed");
+        }
+        clearDisplay();
+    }
+    stopDecoder();
+    clearPreviewFrame();
+    clearCaptureFrame();
+    pthread_mutex_lock(&preview_mutex);
+    if (mPreviewWindow) {
+        ANativeWindow_release(mPreviewWindow);
+        mPreviewWindow = NULL;
+    }
+    pthread_mutex_unlock(&preview_mutex);
+    pthread_mutex_lock(&capture_mutex);
+    if (mCaptureWindow) {
+        ANativeWindow_release(mCaptureWindow);
+        mCaptureWindow = NULL;
+    }
+    pthread_mutex_unlock(&capture_mutex);
+    RETURN(0, int);
 }
 
 //**********************************************************************
@@ -632,6 +639,7 @@ void UVCPreview::do_preview(uvc_stream_ctrl_t *ctrl) {
 			mDeviceHandle, ctrl, uvc_preview_frame_callback, (void *) this, 0);
 
 	if (LIKELY(!result)) {
+        if (isStopping) return;
 		clearPreviewFrame();
 		pthread_create(&capture_thread, NULL, capture_thread_func, (void *) this);
 
@@ -639,6 +647,7 @@ void UVCPreview::do_preview(uvc_stream_ctrl_t *ctrl) {
 		LOGI("Streaming...");
 #endif
 		clock_gettime(CLOCK_REALTIME, &tStart);
+        isStarting = false;
 		for (; LIKELY(isRunning());) {
 			frame = waitPreviewFrame();
 			if (LIKELY(frame)) {
@@ -695,7 +704,7 @@ void UVCPreview::do_preview(uvc_stream_ctrl_t *ctrl) {
 	} else {
 		uvc_perror(result, "failed start_streaming");
 	}
-
+    isStarting = false;
 	EXIT();
 }
 
@@ -943,11 +952,11 @@ void UVCPreview::do_capture(JNIEnv *env) {
 // Execute capture idle loop
 void UVCPreview::do_capture_idle_loop(JNIEnv *env) {
 	ENTER();
-	
+
 	for (; isRunning() && isCapturing() ;) {
 		do_capture_callback(env, waitCaptureFrame());
 	}
-	
+
 	EXIT();
 }
 

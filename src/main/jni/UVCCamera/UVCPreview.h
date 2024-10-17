@@ -67,6 +67,9 @@ private:
 	// preview view
 	ANativeWindow *mPreviewWindow;
 	volatile bool mIsRunning;
+    bool isStarting;
+    bool isStopping;
+    bool isDestroying;
 	int requestWidth, requestHeight, frameFormat;
 	int requestMinFps, requestMaxFps;
 	int frameWidth, frameHeight;
